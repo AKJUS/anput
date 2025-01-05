@@ -95,18 +95,16 @@ fn report_world_state(context: SystemContext) -> Result<(), Box<dyn Error>> {
         Query<
             true,
             (
-                // We want Entity to not makle this query infinite due to all options.
-                Entity,
-                Option<&WorldChunk>,
+                &WorldChunk,
                 Option<&Monster>,
                 Option<&Animal>,
-                Option<&Health>,
-                Option<&Strength>,
+                &Health,
+                &Strength,
             ),
         >,
     )>()?;
 
-    for (_, chunk, monster, animal, health, strength) in query.query(world) {
+    for (chunk, monster, animal, health, strength) in query.query(world) {
         println!(
             "Chunk: {:?} | Monster: {:?} | Animal: {:?} | Health: {:?} | Strength: {:?}",
             chunk, monster, animal, health, strength
