@@ -1,0 +1,21 @@
+[package]
+name = "anput"
+version = "0.5.0"
+edition = "2021"
+authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
+description = "Scriptable Entity-Component-System (powered by Intuicio)"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/PsichiX/anput"
+repository = "https://github.com/PsichiX/anput"
+documentation = "https://docs.rs/anput"
+readme = "../README.md"
+
+[dependencies]
+intuicio-data = "0.41"
+intuicio-core = "0.41"
+intuicio-derive = "0.41"
+intuicio-framework-serde = "0.41"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+rand = "0.8"
