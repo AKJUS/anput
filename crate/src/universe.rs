@@ -304,10 +304,10 @@ impl Universe {
         self.with_plugin(
             QuickPlugin::<BasicsPlugin>::default()
                 .resource(CommandBuffer::default())
-                .resource(Registry::default())
+                .resource(Registry::default().with_basic_types())
                 .resource(Context::new(stack_capacity, registers_capacity))
                 .resource(WorldProcessor::default())
-                .resource(SerializationRegistry::default()),
+                .resource(SerializationRegistry::default().with_basic_types()),
         )
     }
 

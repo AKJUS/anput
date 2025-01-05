@@ -1,6 +1,6 @@
 [package]
 name = "anput"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Scriptable Entity-Component-System (powered by Intuicio)"
@@ -19,3 +19,4 @@ serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 rand = "0.8"
+serde_json = "1"
