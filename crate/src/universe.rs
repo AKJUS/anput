@@ -572,6 +572,27 @@ impl<Tag: Send + Sync> QuickPlugin<Tag> {
         }));
         self
     }
+
+    pub fn with_resource<T: Component + Default>(
+        mut self,
+        f: impl Fn(&mut T) + Send + Sync + 'static,
+    ) -> Self {
+        self.resources_register.push(Box::new(move |resources| {
+            let created = if !resources.has::<T>() {
+                resources.add((T::default(),)).unwrap();
+                true
+            } else {
+                false
+            };
+            f(&mut *resources.get_mut::<true, T>().unwrap());
+            Box::new(move |resources| {
+                if created {
+                    let _ = resources.remove::<(T,)>();
+                }
+            })
+        }));
+        self
+    }
 }
 
 impl<T: Send + Sync> Plugin for QuickPlugin<T> {

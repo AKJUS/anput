@@ -219,6 +219,14 @@ impl<const LOCKING: bool, Tag: Send + Sync> GraphSchedulerQuickPlugin<LOCKING, T
         self.plugin = self.plugin.resource(resource);
         self
     }
+
+    pub fn with_resource<T: Component + Default>(
+        mut self,
+        f: impl Fn(&mut T) + Send + Sync + 'static,
+    ) -> Self {
+        self.plugin = self.plugin.with_resource(f);
+        self
+    }
 }
 
 pub struct GraphSchedulerGroup<

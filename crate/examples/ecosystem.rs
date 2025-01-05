@@ -65,12 +65,9 @@ impl Default for Reproduction {
 fn main() -> Result<(), Box<dyn Error>> {
     struct GamePlugin;
     let game = GraphSchedulerQuickPlugin::<true, GamePlugin>::default()
-        .quick(|plugin| {
-            plugin
-                .resource(CommandBuffer::default())
-                .resource(ScreenGrid::new(10, 6))
-                .resource(Contacts::default())
-        })
+        .resource(CommandBuffer::default())
+        .resource(ScreenGrid::new(10, 6))
+        .resource(Contacts::default())
         .group("update", (), |group| {
             group
                 .system(movement, "movement", ())

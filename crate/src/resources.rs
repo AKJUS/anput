@@ -1,7 +1,7 @@
 use crate::{
     archetype::ArchetypeColumnInfo,
     bundle::{Bundle, BundleColumns},
-    query::{TypedQueryFetch, TypedQueryIter},
+    query::{TypedLookupAccess, TypedLookupFetch, TypedQueryFetch, TypedQueryIter},
     world::{World, WorldChanges, WorldError},
     Component, ComponentRef, ComponentRefMut,
 };
@@ -72,6 +72,21 @@ impl Resources {
         self.world.component_did_changed_raw(type_hash)
     }
 
+    pub fn has<T: Component>(&self) -> bool {
+        let entity = self.world.entities().next().unwrap_or_default();
+        self.world.has_entity_component::<T>(entity)
+    }
+
+    pub fn ensure<const LOCKING: bool, T: Component + Default>(
+        &mut self,
+    ) -> Result<ComponentRefMut<LOCKING, T>, Box<dyn Error>> {
+        let entity = self.world.entities().next().unwrap_or_default();
+        if !self.world.has_entity_component::<T>(entity) {
+            self.world.insert(entity, (T::default(),))?;
+        }
+        Ok(self.world.component_mut(entity)?)
+    }
+
     pub fn get<const LOCKING: bool, T: Component>(
         &self,
     ) -> Result<ComponentRef<LOCKING, T>, Box<dyn Error>> {
@@ -90,5 +105,11 @@ impl Resources {
         &'a self,
     ) -> TypedQueryIter<'a, LOCKING, Fetch> {
         self.world.query::<LOCKING, Fetch>()
+    }
+
+    pub fn lookup<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
+        &'a self,
+    ) -> TypedLookupAccess<'a, LOCKING, Fetch> {
+        self.world.lookup_access::<LOCKING, Fetch>()
     }
 }
