@@ -1,7 +1,7 @@
 use crate::{
+    component::Component,
     entity::Entity,
     world::{World, WorldError},
-    Component,
 };
 use intuicio_data::type_hash::TypeHash;
 use std::collections::HashMap;

@@ -4,13 +4,13 @@ use crate::{
         ArchetypeEntityColumnAccess, ArchetypeEntityRowAccess, ArchetypeError,
     },
     bundle::{Bundle, BundleColumns},
+    component::{Component, ComponentRef, ComponentRefMut},
     entity::Entity,
     processor::{WorldProcessor, WorldProcessorEntityMapping},
     query::{
         DynamicLookupAccess, DynamicLookupIter, DynamicQueryFilter, DynamicQueryIter,
         TypedLookupAccess, TypedLookupFetch, TypedLookupIter, TypedQueryFetch, TypedQueryIter,
     },
-    Component, ComponentRef, ComponentRefMut,
 };
 use intuicio_core::{registry::Registry, types::struct_type::NativeStructBuilder};
 use intuicio_data::type_hash::TypeHash;

@@ -1,10 +1,10 @@
 use crate::{
     archetype::ArchetypeColumnInfo,
     bundle::{Bundle, BundleColumns},
+    component::{Component, ComponentRef, ComponentRefMut},
     entity::Entity,
     query::TypedLookupFetch,
     world::{Relation, World, WorldError},
-    Component, ComponentRef, ComponentRefMut,
 };
 use intuicio_core::{context::Context, function::FunctionHandle, registry::Registry};
 use intuicio_data::{

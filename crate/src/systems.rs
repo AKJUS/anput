@@ -1,10 +1,9 @@
 use crate::{
     bundle::Bundle,
+    component::Component,
     entity::Entity,
-    prelude::Res,
-    universe::{Universe, UniverseCondition, UniverseFetch},
+    universe::{Res, Universe, UniverseCondition, UniverseFetch},
     world::{World, WorldError},
-    Component,
 };
 use intuicio_core::{
     context::Context,

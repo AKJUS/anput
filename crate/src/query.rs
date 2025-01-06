@@ -3,9 +3,9 @@ use crate::{
         Archetype, ArchetypeColumnAccess, ArchetypeDynamicColumnAccess, ArchetypeDynamicColumnItem,
         ArchetypeDynamicColumnIter, ArchetypeError,
     },
+    component::Component,
     entity::{Entity, EntityDenseMap},
     world::World,
-    Component,
 };
 use intuicio_data::type_hash::TypeHash;
 use std::{

@@ -1,6 +1,6 @@
 use crate::{
     archetype::{ArchetypeColumnInfo, ArchetypeEntityRowAccess},
-    Component,
+    component::Component,
 };
 use intuicio_core::object::{DynamicObject, TypedDynamicObject};
 use intuicio_data::{managed::DynamicManaged, type_hash::TypeHash};

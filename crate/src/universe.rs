@@ -1,13 +1,13 @@
 use crate::{
     bundle::Bundle,
     commands::CommandBuffer,
+    component::{Component, ComponentRef, ComponentRefMut},
     entity::Entity,
     processor::WorldProcessor,
     query::{Lookup, Query, TypedLookupFetch, TypedQueryFetch},
     resources::Resources,
     systems::{System, SystemContext, Systems},
     world::World,
-    Component, ComponentRef, ComponentRefMut,
 };
 use intuicio_core::{context::Context, registry::Registry};
 use intuicio_data::type_hash::TypeHash;

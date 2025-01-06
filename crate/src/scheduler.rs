@@ -1,12 +1,11 @@
 use crate::{
     bundle::{Bundle, BundleChain},
+    component::Component,
     entity::Entity,
-    prelude::QuickPlugin,
     query::Exclude,
     systems::{System, SystemContext, SystemObject},
-    universe::Universe,
+    universe::{QuickPlugin, Universe},
     world::Relation,
-    Component,
 };
 use std::{
     collections::{HashSet, VecDeque},

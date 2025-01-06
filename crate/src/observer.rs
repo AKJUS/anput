@@ -1,4 +1,4 @@
-use crate::{commands::CommandBuffer, entity::Entity, world::World, Component};
+use crate::{commands::CommandBuffer, component::Component, entity::Entity, world::World};
 use intuicio_data::type_hash::TypeHash;
 use std::collections::HashMap;
 

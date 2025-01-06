@@ -1,10 +1,10 @@
 use crate::{
     archetype::{Archetype, ArchetypeColumnInfo, ArchetypeError},
     bundle::Bundle,
+    component::Component,
     entity::Entity,
     processor::{WorldProcessor, WorldProcessorEntityMapping},
     world::{Relation, World, WorldError},
-    Component,
 };
 use intuicio_core::{registry::Registry, types::TypeQuery};
 use intuicio_data::type_hash::TypeHash;

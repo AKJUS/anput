@@ -1,9 +1,9 @@
 use crate::{
     archetype::ArchetypeColumnInfo,
     bundle::{Bundle, BundleColumns},
+    component::{Component, ComponentRef, ComponentRefMut},
     query::{TypedLookupAccess, TypedLookupFetch, TypedQueryFetch, TypedQueryIter},
     world::{World, WorldChanges, WorldError},
-    Component, ComponentRef, ComponentRefMut,
 };
 use intuicio_data::type_hash::TypeHash;
 use std::{error::Error, sync::RwLockReadGuard};

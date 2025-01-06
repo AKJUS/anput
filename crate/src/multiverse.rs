@@ -2,12 +2,12 @@ use crate::{
     archetype::{
         ArchetypeColumnInfo, ArchetypeDynamicEntityColumnAccess, ArchetypeEntityColumnAccess,
     },
+    component::Component,
     entity::Entity,
     query::{
         DynamicQueryFilter, DynamicQueryItem, DynamicQueryIter, TypedQueryFetch, TypedQueryIter,
     },
     world::{World, WorldError},
-    Component,
 };
 use intuicio_data::type_hash::TypeHash;
 use serde::{Deserialize, Serialize};

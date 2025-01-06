@@ -91,6 +91,26 @@ impl<T: Bundle + Send + Sync + 'static> Command for SpawnCommand<T> {
     }
 }
 
+pub struct SpawnManyCommand<T: Bundle + Send + Sync + 'static> {
+    bundles: Vec<T>,
+}
+
+impl<T: Bundle + Send + Sync + 'static> SpawnManyCommand<T> {
+    pub fn new(bundles: impl IntoIterator<Item = T>) -> Self {
+        Self {
+            bundles: bundles.into_iter().collect(),
+        }
+    }
+}
+
+impl<T: Bundle + Send + Sync + 'static> Command for SpawnManyCommand<T> {
+    fn execute(self, world: &mut World) {
+        for bundle in self.bundles {
+            world.spawn(bundle).unwrap();
+        }
+    }
+}
+
 pub struct DespawnCommand {
     entity: Entity,
 }
@@ -104,6 +124,26 @@ impl DespawnCommand {
 impl Command for DespawnCommand {
     fn execute(self, world: &mut World) {
         world.despawn(self.entity).unwrap();
+    }
+}
+
+pub struct DespawnManyCommand {
+    entities: Vec<Entity>,
+}
+
+impl DespawnManyCommand {
+    pub fn new(entities: impl IntoIterator<Item = Entity>) -> Self {
+        Self {
+            entities: entities.into_iter().collect(),
+        }
+    }
+}
+
+impl Command for DespawnManyCommand {
+    fn execute(self, world: &mut World) {
+        for entity in self.entities {
+            world.despawn(entity).unwrap();
+        }
     }
 }
 

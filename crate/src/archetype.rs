@@ -1,7 +1,7 @@
 use crate::{
     bundle::Bundle,
+    component::Component,
     entity::{Entity, EntityDenseMap},
-    Component,
 };
 use intuicio_core::types::Type;
 use intuicio_data::{type_hash::TypeHash, Finalize};
