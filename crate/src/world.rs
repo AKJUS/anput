@@ -1102,7 +1102,7 @@ impl World {
     pub fn has_component_raw(&self, component: TypeHash) -> bool {
         self.archetypes
             .iter()
-            .any(|archetype| archetype.has_type(component))
+            .any(|archetype| archetype.has_type(component) && !archetype.is_empty())
     }
 
     pub fn find_by<const LOCKING: bool, T: Component + PartialEq>(
