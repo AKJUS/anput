@@ -1117,7 +1117,7 @@ impl World {
         None
     }
 
-    pub fn find_with<const LOCKING: bool, T: Component + PartialEq>(
+    pub fn find_with<const LOCKING: bool, T: Component>(
         &self,
         f: impl Fn(&T) -> bool,
     ) -> Option<Entity> {
