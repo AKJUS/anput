@@ -22,3 +22,5 @@ pub mod prelude {
         systems::*, universe::*, world::*,
     };
 }
+
+pub use intuicio_data::type_hash::TypeHash;
