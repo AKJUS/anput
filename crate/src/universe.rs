@@ -311,6 +311,20 @@ impl Universe {
         )
     }
 
+    pub fn with_resource(mut self, resource: impl Component) -> Result<Self, Box<dyn Error>> {
+        self.resources.add((resource,))?;
+        Ok(self)
+    }
+
+    pub fn with_system(
+        mut self,
+        system: impl System,
+        locals: impl Bundle,
+    ) -> Result<Self, Box<dyn Error>> {
+        self.systems.add(system, locals)?;
+        Ok(self)
+    }
+
     pub fn clear_changes(&mut self) {
         self.simulation.clear_changes();
         self.resources.clear_changes();

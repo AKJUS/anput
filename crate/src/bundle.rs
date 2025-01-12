@@ -12,34 +12,44 @@ pub struct DynamicBundle {
 }
 
 impl DynamicBundle {
-    pub fn with_component<T>(mut self, data: T) -> Result<Self, T> {
-        self.add_component(data)?;
+    pub fn with_component<T: Component>(mut self, component: T) -> Result<Self, T> {
+        self.add_component(component)?;
         Ok(self)
     }
 
-    pub fn with_component_raw(mut self, data: DynamicManaged) -> Self {
-        self.add_component_raw(data);
+    pub fn with_component_raw(mut self, component: DynamicManaged) -> Self {
+        self.add_component_raw(component);
         self
     }
 
-    pub fn add_component<T>(&mut self, data: T) -> Result<(), T> {
-        self.add_component_raw(DynamicManaged::new(data)?);
-        Ok(())
+    pub fn new<T: Component>(component: T) -> Result<Self, T> {
+        Ok(Self::new_raw(DynamicManaged::new(component)?))
     }
 
-    pub fn add_component_raw(&mut self, data: DynamicManaged) {
-        if let Some(index) = self
-            .components
-            .iter()
-            .position(|component| component.type_hash() == data.type_hash())
-        {
-            self.components[index] = data;
-        } else {
-            self.components.push(data);
+    pub fn new_raw(component: DynamicManaged) -> Self {
+        Self {
+            components: vec![component],
         }
     }
 
-    pub fn remove_component<T>(&mut self) -> Option<T> {
+    pub fn add_component<T: Component>(&mut self, component: T) -> Result<(), T> {
+        self.add_component_raw(DynamicManaged::new(component)?);
+        Ok(())
+    }
+
+    pub fn add_component_raw(&mut self, component: DynamicManaged) {
+        if let Some(index) = self
+            .components
+            .iter()
+            .position(|component| component.type_hash() == component.type_hash())
+        {
+            self.components[index] = component;
+        } else {
+            self.components.push(component);
+        }
+    }
+
+    pub fn remove_component<T: Component>(&mut self) -> Option<T> {
         self.remove_component_raw(TypeHash::of::<T>())?
             .consume()
             .ok()

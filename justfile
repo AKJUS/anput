@@ -24,6 +24,9 @@ checks:
   just test
   just miri
 
+demo:
+  cargo run --release --manifest-path ./demo/Cargo.toml
+
 clean:
   find . -name target -type d -exec rm -r {} +
   just remove-lockfiles

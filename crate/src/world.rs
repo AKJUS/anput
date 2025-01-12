@@ -1095,6 +1095,16 @@ impl World {
             .unwrap_or_default()
     }
 
+    pub fn has_component<T: Component>(&self) -> bool {
+        self.has_component_raw(TypeHash::of::<T>())
+    }
+
+    pub fn has_component_raw(&self, component: TypeHash) -> bool {
+        self.archetypes
+            .iter()
+            .any(|archetype| archetype.has_type(component))
+    }
+
     pub fn find_by<const LOCKING: bool, T: Component + PartialEq>(
         &self,
         data: &T,
