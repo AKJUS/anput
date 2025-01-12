@@ -1117,6 +1117,18 @@ impl World {
         None
     }
 
+    pub fn find_with<const LOCKING: bool, T: Component + PartialEq>(
+        &self,
+        f: impl Fn(&T) -> bool,
+    ) -> Option<Entity> {
+        for (entity, component) in self.query::<LOCKING, (Entity, &T)>() {
+            if f(component) {
+                return Some(entity);
+            }
+        }
+        None
+    }
+
     pub fn component<const LOCKING: bool, T: Component>(
         &self,
         entity: Entity,
