@@ -41,7 +41,7 @@ impl DynamicBundle {
         if let Some(index) = self
             .components
             .iter()
-            .position(|component| component.type_hash() == component.type_hash())
+            .position(|c| c.type_hash() == component.type_hash())
         {
             self.components[index] = component;
         } else {
@@ -84,7 +84,7 @@ impl BundleColumns for () {
 
 impl BundleColumns for Vec<ArchetypeColumnInfo> {
     fn columns_static() -> Vec<ArchetypeColumnInfo> {
-        vec![]
+        unreachable!()
     }
 
     fn columns(&self) -> Vec<ArchetypeColumnInfo> {
@@ -94,7 +94,7 @@ impl BundleColumns for Vec<ArchetypeColumnInfo> {
 
 impl BundleColumns for DynamicObject {
     fn columns_static() -> Vec<ArchetypeColumnInfo> {
-        vec![]
+        unreachable!()
     }
 
     fn columns(&self) -> Vec<ArchetypeColumnInfo> {
@@ -115,7 +115,7 @@ impl BundleColumns for DynamicObject {
 
 impl BundleColumns for TypedDynamicObject {
     fn columns_static() -> Vec<ArchetypeColumnInfo> {
-        vec![]
+        unreachable!()
     }
 
     fn columns(&self) -> Vec<ArchetypeColumnInfo> {
@@ -136,7 +136,7 @@ impl BundleColumns for TypedDynamicObject {
 
 impl BundleColumns for DynamicBundle {
     fn columns_static() -> Vec<ArchetypeColumnInfo> {
-        vec![]
+        unreachable!()
     }
 
     fn columns(&self) -> Vec<ArchetypeColumnInfo> {
@@ -286,5 +286,30 @@ impl<T: Component> BundleColumns for BundleOnce<T> {
 impl<T: Component> Bundle for BundleOnce<T> {
     fn initialize_into(self, access: &ArchetypeEntityRowAccess) {
         unsafe { access.initialize(self.0).unwrap() };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dynamic_bundle() {
+        let bundle = DynamicBundle::default()
+            .with_component(42i32)
+            .unwrap()
+            .with_component(4.2f32)
+            .unwrap()
+            .with_component("Hello World".to_owned())
+            .unwrap();
+
+        assert_eq!(
+            bundle.columns(),
+            vec![
+                ArchetypeColumnInfo::new::<i32>(),
+                ArchetypeColumnInfo::new::<f32>(),
+                ArchetypeColumnInfo::new::<String>()
+            ]
+        );
     }
 }

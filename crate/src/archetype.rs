@@ -78,7 +78,7 @@ impl std::fmt::Display for ArchetypeError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct ArchetypeColumnInfo {
     type_hash: TypeHash,
     layout: Layout,
@@ -128,6 +128,12 @@ impl ArchetypeColumnInfo {
     #[inline]
     pub fn finalizer(&self) -> unsafe fn(*mut ()) {
         self.finalizer
+    }
+}
+
+impl PartialEq for ArchetypeColumnInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.type_hash.eq(&other.type_hash) && self.layout.eq(&other.layout)
     }
 }
 
