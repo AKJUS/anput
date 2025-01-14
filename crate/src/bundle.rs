@@ -274,3 +274,17 @@ impl<A: Bundle, B: Bundle> Bundle for BundleChain<A, B> {
         self.1.initialize_into(access);
     }
 }
+
+pub struct BundleOnce<T: Component>(pub T);
+
+impl<T: Component> BundleColumns for BundleOnce<T> {
+    fn columns_static() -> Vec<ArchetypeColumnInfo> {
+        vec![ArchetypeColumnInfo::new::<T>()]
+    }
+}
+
+impl<T: Component> Bundle for BundleOnce<T> {
+    fn initialize_into(self, access: &ArchetypeEntityRowAccess) {
+        unsafe { access.initialize(self.0).unwrap() };
+    }
+}
