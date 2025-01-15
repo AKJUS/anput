@@ -23,4 +23,9 @@ pub mod prelude {
     };
 }
 
-pub use intuicio_data::type_hash::TypeHash;
+pub mod third_party {
+    pub use intuicio_core;
+    pub use intuicio_data;
+    pub use intuicio_derive;
+    pub use intuicio_framework_serde;
+}
