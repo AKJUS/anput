@@ -1,5 +1,5 @@
 use crate::{
-    bundle::Bundle,
+    bundle::{Bundle, BundleColumns},
     component::Component,
     entity::{Entity, EntityDenseMap},
 };
@@ -9,8 +9,20 @@ use std::{
     alloc::{alloc, dealloc, Layout},
     error::Error,
     marker::PhantomData,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    },
 };
+
+fn traced_spin_loop() {
+    #[cfg(feature = "deadlock-trace")]
+    println!(
+        "* DEADLOCK BACKTRACE: {}",
+        std::backtrace::Backtrace::force_capture()
+    );
+    std::hint::spin_loop();
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ArchetypeError {
@@ -40,6 +52,9 @@ pub enum ArchetypeError {
     },
     EntityAlreadyOccupied {
         entity: Entity,
+    },
+    ColumnSdirLocked {
+        type_hash: TypeHash,
     },
 }
 
@@ -74,6 +89,11 @@ impl std::fmt::Display for ArchetypeError {
             Self::EntityAlreadyOccupied { entity } => {
                 write!(f, "Entity already occupied: {}", entity)
             }
+            Self::ColumnSdirLocked { type_hash } => write!(
+                f,
+                "Column: {:?} is locked for Spawn/Despawn/Insert/Remove operations",
+                type_hash
+            ),
         }
     }
 }
@@ -154,7 +174,7 @@ impl<const LOCKING: bool, T: Component> Drop for ArchetypeColumnAccess<'_, LOCKI
                     .compare_exchange_weak(true, false, Ordering::Acquire, Ordering::Relaxed)
                     .is_err()
                 {
-                    std::hint::spin_loop();
+                    traced_spin_loop();
                 }
             } else {
                 let _ = self.column.unique_access.compare_exchange(
@@ -168,7 +188,43 @@ impl<const LOCKING: bool, T: Component> Drop for ArchetypeColumnAccess<'_, LOCKI
     }
 }
 
-impl<const LOCKING: bool, T: Component> ArchetypeColumnAccess<'_, LOCKING, T> {
+impl<'a, const LOCKING: bool, T: Component> ArchetypeColumnAccess<'a, LOCKING, T> {
+    unsafe fn new(column: &'a Column, unique: bool, size: usize) -> Result<Self, ArchetypeError> {
+        if unique {
+            if LOCKING {
+                while column
+                    .unique_access
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                {
+                    traced_spin_loop();
+                }
+            } else if column
+                .unique_access
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                    type_hash: column.info.type_hash,
+                });
+            }
+        } else if LOCKING {
+            while column.unique_access.load(Ordering::Acquire) {
+                traced_spin_loop();
+            }
+        } else if column.unique_access.load(Ordering::Acquire) {
+            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                type_hash: column.info.type_hash,
+            });
+        }
+        Ok(Self {
+            column,
+            size,
+            unique,
+            _phantom: PhantomData,
+        })
+    }
+
     #[inline]
     pub fn info(&self) -> &ArchetypeColumnInfo {
         &self.column.info
@@ -247,7 +303,7 @@ impl<const LOCKING: bool> Drop for ArchetypeDynamicColumnAccess<'_, LOCKING> {
                     .compare_exchange_weak(true, false, Ordering::Acquire, Ordering::Relaxed)
                     .is_err()
                 {
-                    std::hint::spin_loop();
+                    traced_spin_loop();
                 }
             } else {
                 let _ = self.column.unique_access.compare_exchange(
@@ -261,7 +317,42 @@ impl<const LOCKING: bool> Drop for ArchetypeDynamicColumnAccess<'_, LOCKING> {
     }
 }
 
-impl<const LOCKING: bool> ArchetypeDynamicColumnAccess<'_, LOCKING> {
+impl<'a, const LOCKING: bool> ArchetypeDynamicColumnAccess<'a, LOCKING> {
+    fn new(column: &'a Column, unique: bool, size: usize) -> Result<Self, ArchetypeError> {
+        if unique {
+            if LOCKING {
+                while column
+                    .unique_access
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                {
+                    traced_spin_loop();
+                }
+            } else if column
+                .unique_access
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                    type_hash: column.info.type_hash,
+                });
+            }
+        } else if LOCKING {
+            while column.unique_access.load(Ordering::Acquire) {
+                traced_spin_loop();
+            }
+        } else if column.unique_access.load(Ordering::Acquire) {
+            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                type_hash: column.info.type_hash,
+            });
+        }
+        Ok(Self {
+            column,
+            size,
+            unique,
+        })
+    }
+
     #[inline]
     pub fn info(&self) -> &ArchetypeColumnInfo {
         &self.column.info
@@ -351,7 +442,7 @@ impl<const LOCKING: bool, T: Component> Drop for ArchetypeEntityColumnAccess<'_,
                     .compare_exchange_weak(true, false, Ordering::Acquire, Ordering::Relaxed)
                     .is_err()
                 {
-                    std::hint::spin_loop();
+                    traced_spin_loop();
                 }
             } else {
                 let _ = self.column.unique_access.compare_exchange(
@@ -365,7 +456,43 @@ impl<const LOCKING: bool, T: Component> Drop for ArchetypeEntityColumnAccess<'_,
     }
 }
 
-impl<const LOCKING: bool, T: Component> ArchetypeEntityColumnAccess<'_, LOCKING, T> {
+impl<'a, const LOCKING: bool, T: Component> ArchetypeEntityColumnAccess<'a, LOCKING, T> {
+    unsafe fn new(column: &'a Column, unique: bool, index: usize) -> Result<Self, ArchetypeError> {
+        if unique {
+            if LOCKING {
+                while column
+                    .unique_access
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                {
+                    traced_spin_loop();
+                }
+            } else if column
+                .unique_access
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                    type_hash: column.info.type_hash,
+                });
+            }
+        } else if LOCKING {
+            while column.unique_access.load(Ordering::Acquire) {
+                traced_spin_loop();
+            }
+        } else if column.unique_access.load(Ordering::Acquire) {
+            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                type_hash: column.info.type_hash,
+            });
+        }
+        Ok(Self {
+            column,
+            index,
+            unique,
+            _phantom: PhantomData,
+        })
+    }
+
     #[inline]
     pub fn info(&self) -> &ArchetypeColumnInfo {
         &self.column.info
@@ -425,7 +552,7 @@ impl<const LOCKING: bool> Drop for ArchetypeDynamicEntityColumnAccess<'_, LOCKIN
                     .compare_exchange_weak(true, false, Ordering::Acquire, Ordering::Relaxed)
                     .is_err()
                 {
-                    std::hint::spin_loop();
+                    traced_spin_loop();
                 }
             } else {
                 let _ = self.column.unique_access.compare_exchange(
@@ -439,7 +566,42 @@ impl<const LOCKING: bool> Drop for ArchetypeDynamicEntityColumnAccess<'_, LOCKIN
     }
 }
 
-impl<const LOCKING: bool> ArchetypeDynamicEntityColumnAccess<'_, LOCKING> {
+impl<'a, const LOCKING: bool> ArchetypeDynamicEntityColumnAccess<'a, LOCKING> {
+    fn new(column: &'a Column, unique: bool, index: usize) -> Result<Self, ArchetypeError> {
+        if unique {
+            if LOCKING {
+                while column
+                    .unique_access
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                {
+                    traced_spin_loop();
+                }
+            } else if column
+                .unique_access
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                    type_hash: column.info.type_hash,
+                });
+            }
+        } else if LOCKING {
+            while column.unique_access.load(Ordering::Acquire) {
+                traced_spin_loop();
+            }
+        } else if column.unique_access.load(Ordering::Acquire) {
+            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                type_hash: column.info.type_hash,
+            });
+        }
+        Ok(Self {
+            column,
+            index,
+            unique,
+        })
+    }
+
     #[inline]
     pub fn info(&self) -> &ArchetypeColumnInfo {
         &self.column.info
@@ -500,7 +662,7 @@ impl Drop for ArchetypeEntityRowAccess<'_> {
                 .compare_exchange_weak(true, false, Ordering::Acquire, Ordering::Relaxed)
                 .is_err()
             {
-                std::hint::spin_loop();
+                traced_spin_loop();
             }
         }
     }
@@ -514,7 +676,7 @@ impl<'a> ArchetypeEntityRowAccess<'a> {
                 .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
                 .is_err()
             {
-                std::hint::spin_loop();
+                traced_spin_loop();
             }
         }
         Self { columns, index }
@@ -614,6 +776,26 @@ pub struct ArchetypeColumnReadIter<'a, T: Component> {
     _phantom: PhantomData<fn() -> &'a T>,
 }
 
+impl<'a, T: Component> ArchetypeColumnReadIter<'a, T> {
+    fn new<const LOCKING: bool>(column: &'a Column, size: usize) -> Result<Self, ArchetypeError> {
+        if LOCKING {
+            while column.unique_access.load(Ordering::Acquire) {
+                traced_spin_loop();
+            }
+        } else if column.unique_access.load(Ordering::Acquire) {
+            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                type_hash: column.info.type_hash,
+            });
+        }
+        Ok(Self {
+            memory: column.memory,
+            stride: column.info.layout.size(),
+            left: size,
+            _phantom: PhantomData,
+        })
+    }
+}
+
 impl<'a, T: Component> Iterator for ArchetypeColumnReadIter<'a, T> {
     type Item = &'a T;
 
@@ -651,7 +833,7 @@ impl<const LOCKING: bool, T: Component> Drop for ArchetypeColumnWriteIter<'_, LO
                 .compare_exchange_weak(true, false, Ordering::Acquire, Ordering::Relaxed)
                 .is_err()
             {
-                std::hint::spin_loop();
+                traced_spin_loop();
             }
         } else {
             let _ = self.column.unique_access.compare_exchange(
@@ -661,6 +843,35 @@ impl<const LOCKING: bool, T: Component> Drop for ArchetypeColumnWriteIter<'_, LO
                 Ordering::Relaxed,
             );
         }
+    }
+}
+
+impl<'a, const LOCKING: bool, T: Component> ArchetypeColumnWriteIter<'a, LOCKING, T> {
+    fn new(column: &'a Column, size: usize) -> Result<Self, ArchetypeError> {
+        if LOCKING {
+            while column
+                .unique_access
+                .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                traced_spin_loop();
+            }
+        } else if column
+            .unique_access
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                type_hash: column.info.type_hash,
+            });
+        }
+        Ok(Self {
+            column,
+            memory: column.memory,
+            stride: column.info.layout.size(),
+            left: size,
+            _phantom: PhantomData,
+        })
     }
 }
 
@@ -741,7 +952,7 @@ impl<const LOCKING: bool> Drop for ArchetypeDynamicColumnIter<'_, LOCKING> {
                     .compare_exchange_weak(true, false, Ordering::Acquire, Ordering::Relaxed)
                     .is_err()
                 {
-                    std::hint::spin_loop();
+                    traced_spin_loop();
                 }
             } else {
                 let _ = self.column.unique_access.compare_exchange(
@@ -752,6 +963,46 @@ impl<const LOCKING: bool> Drop for ArchetypeDynamicColumnIter<'_, LOCKING> {
                 );
             }
         }
+    }
+}
+
+impl<'a, const LOCKING: bool> ArchetypeDynamicColumnIter<'a, LOCKING> {
+    fn new(column: &'a Column, unique: bool, size: usize) -> Result<Self, ArchetypeError> {
+        if unique {
+            if LOCKING {
+                while column
+                    .unique_access
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                {
+                    traced_spin_loop();
+                }
+            } else if column
+                .unique_access
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                    type_hash: column.info.type_hash,
+                });
+            }
+        } else if LOCKING {
+            while column.unique_access.load(Ordering::Acquire) {
+                traced_spin_loop();
+            }
+        } else if column.unique_access.load(Ordering::Acquire) {
+            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
+                type_hash: column.info.type_hash,
+            });
+        }
+        Ok(Self {
+            column,
+            memory: column.memory,
+            type_hash: column.info.type_hash,
+            stride: column.info.layout.size(),
+            left: size,
+            unique,
+        })
     }
 }
 
@@ -782,7 +1033,8 @@ struct Column {
     memory: *mut u8,
     layout: Layout,
     info: ArchetypeColumnInfo,
-    unique_access: AtomicBool,
+    unique_access: Arc<AtomicBool>,
+    instances: Arc<AtomicUsize>,
 }
 
 unsafe impl Send for Column {}
@@ -790,8 +1042,27 @@ unsafe impl Sync for Column {}
 
 impl Drop for Column {
     fn drop(&mut self) {
-        unsafe {
-            dealloc(self.memory, self.layout);
+        if self.instances.fetch_sub(1, Ordering::SeqCst) <= 1 {
+            while self.unique_access.load(Ordering::Acquire) {
+                traced_spin_loop();
+            }
+            unsafe {
+                dealloc(self.memory, self.layout);
+            }
+        }
+    }
+}
+
+impl Clone for Column {
+    fn clone(&self) -> Self {
+        let instances = self.instances.clone();
+        instances.fetch_add(1, Ordering::SeqCst);
+        Self {
+            memory: self.memory,
+            layout: self.layout,
+            info: self.info,
+            unique_access: self.unique_access.clone(),
+            instances,
         }
     }
 }
@@ -803,7 +1074,18 @@ impl Column {
             memory,
             layout,
             info,
-            unique_access: AtomicBool::new(false),
+            unique_access: Default::default(),
+            instances: Arc::new(AtomicUsize::new(1)),
+        }
+    }
+
+    fn validate_sdir(&self) -> Result<(), ArchetypeError> {
+        if self.instances.load(Ordering::Acquire) <= 1 {
+            Ok(())
+        } else {
+            Err(ArchetypeError::ColumnSdirLocked {
+                type_hash: self.info.type_hash,
+            })
         }
     }
 
@@ -831,39 +1113,7 @@ impl Column {
         unique: bool,
         size: usize,
     ) -> Result<ArchetypeColumnAccess<LOCKING, T>, ArchetypeError> {
-        if unique {
-            if LOCKING {
-                while self
-                    .unique_access
-                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-                    .is_err()
-                {
-                    std::hint::spin_loop();
-                }
-            } else if self
-                .unique_access
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-            {
-                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                    type_hash: self.info.type_hash,
-                });
-            }
-        } else if LOCKING {
-            while self.unique_access.load(Ordering::Acquire) {
-                std::hint::spin_loop();
-            }
-        } else if self.unique_access.load(Ordering::Acquire) {
-            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                type_hash: self.info.type_hash,
-            });
-        }
-        Ok(ArchetypeColumnAccess {
-            column: self,
-            size,
-            unique,
-            _phantom: PhantomData,
-        })
+        ArchetypeColumnAccess::new(self, unique, size)
     }
 
     fn dynamic_column_access<const LOCKING: bool>(
@@ -871,38 +1121,7 @@ impl Column {
         unique: bool,
         size: usize,
     ) -> Result<ArchetypeDynamicColumnAccess<LOCKING>, ArchetypeError> {
-        if unique {
-            if LOCKING {
-                while self
-                    .unique_access
-                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-                    .is_err()
-                {
-                    std::hint::spin_loop();
-                }
-            } else if self
-                .unique_access
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-            {
-                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                    type_hash: self.info.type_hash,
-                });
-            }
-        } else if LOCKING {
-            while self.unique_access.load(Ordering::Acquire) {
-                std::hint::spin_loop();
-            }
-        } else if self.unique_access.load(Ordering::Acquire) {
-            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                type_hash: self.info.type_hash,
-            });
-        }
-        Ok(ArchetypeDynamicColumnAccess {
-            column: self,
-            size,
-            unique,
-        })
+        ArchetypeDynamicColumnAccess::new(self, unique, size)
     }
 
     unsafe fn entity_access<const LOCKING: bool, T: Component>(
@@ -910,39 +1129,7 @@ impl Column {
         unique: bool,
         index: usize,
     ) -> Result<ArchetypeEntityColumnAccess<LOCKING, T>, ArchetypeError> {
-        if unique {
-            if LOCKING {
-                while self
-                    .unique_access
-                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-                    .is_err()
-                {
-                    std::hint::spin_loop();
-                }
-            } else if self
-                .unique_access
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-            {
-                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                    type_hash: self.info.type_hash,
-                });
-            }
-        } else if LOCKING {
-            while self.unique_access.load(Ordering::Acquire) {
-                std::hint::spin_loop();
-            }
-        } else if self.unique_access.load(Ordering::Acquire) {
-            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                type_hash: self.info.type_hash,
-            });
-        }
-        Ok(ArchetypeEntityColumnAccess {
-            column: self,
-            index,
-            unique,
-            _phantom: PhantomData,
-        })
+        ArchetypeEntityColumnAccess::new(self, unique, index)
     }
 
     fn dynamic_entity_access<const LOCKING: bool>(
@@ -950,131 +1137,29 @@ impl Column {
         unique: bool,
         index: usize,
     ) -> Result<ArchetypeDynamicEntityColumnAccess<LOCKING>, ArchetypeError> {
-        if unique {
-            if LOCKING {
-                while self
-                    .unique_access
-                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-                    .is_err()
-                {
-                    std::hint::spin_loop();
-                }
-            } else if self
-                .unique_access
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-            {
-                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                    type_hash: self.info.type_hash,
-                });
-            }
-        } else if LOCKING {
-            while self.unique_access.load(Ordering::Acquire) {
-                std::hint::spin_loop();
-            }
-        } else if self.unique_access.load(Ordering::Acquire) {
-            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                type_hash: self.info.type_hash,
-            });
-        }
-        Ok(ArchetypeDynamicEntityColumnAccess {
-            column: self,
-            index,
-            unique,
-        })
+        ArchetypeDynamicEntityColumnAccess::new(self, unique, index)
     }
 
     fn column_read_iter<const LOCKING: bool, T: Component>(
         &self,
         size: usize,
     ) -> Result<ArchetypeColumnReadIter<T>, ArchetypeError> {
-        if LOCKING {
-            while self.unique_access.load(Ordering::Acquire) {
-                std::hint::spin_loop();
-            }
-        } else if self.unique_access.load(Ordering::Acquire) {
-            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                type_hash: self.info.type_hash,
-            });
-        }
-        Ok(ArchetypeColumnReadIter {
-            memory: self.memory,
-            stride: self.info.layout.size(),
-            left: size,
-            _phantom: PhantomData,
-        })
+        ArchetypeColumnReadIter::new::<LOCKING>(self, size)
     }
 
     fn column_write_iter<const LOCKING: bool, T: Component>(
         &self,
         size: usize,
     ) -> Result<ArchetypeColumnWriteIter<LOCKING, T>, ArchetypeError> {
-        if LOCKING {
-            while self
-                .unique_access
-                .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-            {
-                std::hint::spin_loop();
-            }
-        } else if self
-            .unique_access
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                type_hash: self.info.type_hash,
-            });
-        }
-        Ok(ArchetypeColumnWriteIter {
-            column: self,
-            memory: self.memory,
-            stride: self.info.layout.size(),
-            left: size,
-            _phantom: PhantomData,
-        })
+        ArchetypeColumnWriteIter::new(self, size)
     }
 
-    fn dnamic_column_iter<const LOCKING: bool>(
+    fn dynamic_column_iter<const LOCKING: bool>(
         &self,
         unique: bool,
         size: usize,
     ) -> Result<ArchetypeDynamicColumnIter<LOCKING>, ArchetypeError> {
-        if unique {
-            if LOCKING {
-                while self
-                    .unique_access
-                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-                    .is_err()
-                {
-                    std::hint::spin_loop();
-                }
-            } else if self
-                .unique_access
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-            {
-                return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                    type_hash: self.info.type_hash,
-                });
-            }
-        } else if LOCKING {
-            while self.unique_access.load(Ordering::Acquire) {
-                std::hint::spin_loop();
-            }
-        } else if self.unique_access.load(Ordering::Acquire) {
-            return Err(ArchetypeError::ColumnAlreadyUniquelyAccessed {
-                type_hash: self.info.type_hash,
-            });
-        }
-        Ok(ArchetypeDynamicColumnIter {
-            column: self,
-            memory: self.memory,
-            type_hash: self.info.type_hash,
-            stride: self.info.layout.size(),
-            left: size,
-            unique,
-        })
+        ArchetypeDynamicColumnIter::new(self, unique, size)
     }
 }
 
@@ -1122,6 +1207,72 @@ impl Archetype {
             size: 0,
             entity_dense_map: EntityDenseMap::with_capacity(capacity),
         })
+    }
+
+    pub fn view<B: BundleColumns>(&self) -> Option<ArchetypeView> {
+        let columns = B::columns_static()
+            .into_iter()
+            .filter_map(|info| {
+                self.columns
+                    .iter()
+                    .find(|column| column.info == info)
+                    .cloned()
+            })
+            .collect::<Vec<_>>();
+        if columns.is_empty() {
+            None
+        } else {
+            Some(ArchetypeView {
+                archetype: Self {
+                    columns: columns.into_boxed_slice(),
+                    capacity: self.capacity,
+                    size: self.size,
+                    entity_dense_map: self.entity_dense_map.clone(),
+                },
+            })
+        }
+    }
+
+    pub fn view_raw(&self, columns: &[ArchetypeColumnInfo]) -> Option<ArchetypeView> {
+        let columns = columns
+            .iter()
+            .filter_map(|info| {
+                self.columns
+                    .iter()
+                    .find(|column| &column.info == info)
+                    .cloned()
+            })
+            .collect::<Vec<_>>();
+        if columns.is_empty() {
+            None
+        } else {
+            Some(ArchetypeView {
+                archetype: Self {
+                    columns: columns.into_boxed_slice(),
+                    capacity: self.capacity,
+                    size: self.size,
+                    entity_dense_map: self.entity_dense_map.clone(),
+                },
+            })
+        }
+    }
+
+    pub fn view_all(&self) -> ArchetypeView {
+        ArchetypeView {
+            archetype: Self {
+                columns: self.columns.to_vec().into_boxed_slice(),
+                capacity: self.capacity,
+                size: self.size,
+                entity_dense_map: self.entity_dense_map.clone(),
+            },
+        }
+    }
+
+    pub(crate) fn validate_sdir(&self) -> Result<(), ArchetypeError> {
+        for column in self.columns.as_ref() {
+            column.validate_sdir()?;
+        }
+        Ok(())
     }
 
     #[inline]
@@ -1208,6 +1359,7 @@ impl Archetype {
     }
 
     pub fn clear<const LOCKING: bool>(&mut self) -> Result<(), ArchetypeError> {
+        self.validate_sdir()?;
         let access = self
             .columns
             .as_ref()
@@ -1228,11 +1380,13 @@ impl Archetype {
 
     /// # Safety
     pub(crate) unsafe fn clear_uninitialized(&mut self) {
+        // TODO: consider SDIR validation if it makes sense in where is it called.
         self.size = 0;
         self.entity_dense_map.clear();
     }
 
     pub fn insert(&mut self, entity: Entity, bundle: impl Bundle) -> Result<(), ArchetypeError> {
+        self.validate_sdir()?;
         for info in bundle.columns() {
             if !self
                 .columns
@@ -1269,6 +1423,7 @@ impl Archetype {
     }
 
     pub fn add(&mut self, entity: Entity) -> Result<ArchetypeEntityRowAccess, ArchetypeError> {
+        self.validate_sdir()?;
         if self.size == self.capacity {
             self.capacity *= 2;
             for column in self.columns.as_mut() {
@@ -1294,6 +1449,7 @@ impl Archetype {
         if self.size == 0 {
             return Err(ArchetypeError::EntityNotFound { entity });
         }
+        self.validate_sdir()?;
         let index = self
             .entity_dense_map
             .remove(entity)
@@ -1317,6 +1473,7 @@ impl Archetype {
         if self.size == 0 {
             return Err(ArchetypeError::EntityNotFound { entity });
         }
+        self.validate_sdir()?;
         let index = self
             .entity_dense_map
             .remove(entity)
@@ -1345,6 +1502,7 @@ impl Archetype {
         if other.entity_dense_map.contains(entity) {
             return Err(ArchetypeError::EntityAlreadyOccupied { entity });
         }
+        self.validate_sdir()?;
         let index_to = other.entity_dense_map.insert(entity).unwrap();
         let index_from = self.entity_dense_map.remove(entity).unwrap();
         let columns = other
@@ -1483,7 +1641,6 @@ impl Archetype {
         Err(ArchetypeError::ColumnNotFound { type_hash })
     }
 
-    /// # Safety
     pub fn row<const LOCKING: bool>(
         &self,
         entity: Entity,
@@ -1533,10 +1690,148 @@ impl Archetype {
     ) -> Result<ArchetypeDynamicColumnIter<LOCKING>, ArchetypeError> {
         for column in self.columns.as_ref() {
             if column.info.type_hash == type_hash {
-                return column.dnamic_column_iter(unique, self.size);
+                return column.dynamic_column_iter(unique, self.size);
             }
         }
         Err(ArchetypeError::ColumnNotFound { type_hash })
+    }
+}
+
+pub struct ArchetypeView {
+    archetype: Archetype,
+}
+
+impl ArchetypeView {
+    pub fn view<B: BundleColumns>(&self) -> Option<ArchetypeView> {
+        self.archetype.view::<B>()
+    }
+
+    pub fn archetype(&self) -> &Archetype {
+        &self.archetype
+    }
+
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.archetype.capacity()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.archetype.is_empty()
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.archetype.len()
+    }
+
+    #[inline]
+    pub fn entities(&self) -> &EntityDenseMap {
+        self.archetype.entities()
+    }
+
+    #[inline]
+    pub fn columns(&self) -> impl Iterator<Item = &ArchetypeColumnInfo> {
+        self.archetype.columns()
+    }
+
+    pub fn has_column(&self, column: &ArchetypeColumnInfo) -> bool {
+        self.archetype.has_column(column)
+    }
+
+    pub fn has_columns(&self, columns: &[ArchetypeColumnInfo]) -> bool {
+        self.archetype.has_columns(columns)
+    }
+
+    pub fn has_columns_exact(&self, columns: &[ArchetypeColumnInfo]) -> bool {
+        self.archetype.has_columns_exact(columns)
+    }
+
+    pub fn has_no_columns(&self, columns: &[ArchetypeColumnInfo]) -> bool {
+        self.archetype.has_no_columns(columns)
+    }
+
+    pub fn has_type(&self, type_hash: TypeHash) -> bool {
+        self.archetype.has_type(type_hash)
+    }
+
+    pub fn has_types(&self, types: &[TypeHash]) -> bool {
+        self.archetype.has_types(types)
+    }
+
+    pub fn has_types_exact(&self, types: &[TypeHash]) -> bool {
+        self.archetype.has_types_exact(types)
+    }
+
+    pub fn has_no_types(&self, types: &[TypeHash]) -> bool {
+        self.archetype.has_no_types(types)
+    }
+
+    pub fn column<const LOCKING: bool, T: Component>(
+        &self,
+        unique: bool,
+    ) -> Result<ArchetypeColumnAccess<LOCKING, T>, ArchetypeError> {
+        self.archetype.column::<LOCKING, T>(unique)
+    }
+
+    pub fn dynamic_column<const LOCKING: bool>(
+        &self,
+        type_hash: TypeHash,
+        unique: bool,
+    ) -> Result<ArchetypeDynamicColumnAccess<LOCKING>, ArchetypeError> {
+        self.archetype.dynamic_column::<LOCKING>(type_hash, unique)
+    }
+
+    pub fn entity<const LOCKING: bool, T: Component>(
+        &self,
+        entity: Entity,
+        unique: bool,
+    ) -> Result<ArchetypeEntityColumnAccess<LOCKING, T>, ArchetypeError> {
+        self.archetype.entity::<LOCKING, T>(entity, unique)
+    }
+
+    pub fn dynamic_entity<const LOCKING: bool>(
+        &self,
+        type_hash: TypeHash,
+        entity: Entity,
+        unique: bool,
+    ) -> Result<ArchetypeDynamicEntityColumnAccess<LOCKING>, ArchetypeError> {
+        self.archetype
+            .dynamic_entity::<LOCKING>(type_hash, entity, unique)
+    }
+
+    pub fn row<const LOCKING: bool>(
+        &self,
+        entity: Entity,
+    ) -> Result<ArchetypeEntityRowAccess, ArchetypeError> {
+        self.archetype.row::<LOCKING>(entity)
+    }
+
+    pub fn column_read_iter<const LOCKING: bool, T: Component>(
+        &self,
+    ) -> Result<ArchetypeColumnReadIter<T>, ArchetypeError> {
+        self.archetype.column_read_iter::<LOCKING, T>()
+    }
+
+    pub fn column_write_iter<const LOCKING: bool, T: Component>(
+        &self,
+    ) -> Result<ArchetypeColumnWriteIter<LOCKING, T>, ArchetypeError> {
+        self.archetype.column_write_iter::<LOCKING, T>()
+    }
+
+    pub fn dynamic_column_iter<const LOCKING: bool>(
+        &self,
+        type_hash: TypeHash,
+        unique: bool,
+    ) -> Result<ArchetypeDynamicColumnIter<LOCKING>, ArchetypeError> {
+        self.archetype
+            .dynamic_column_iter::<LOCKING>(type_hash, unique)
+    }
+}
+
+impl Clone for ArchetypeView {
+    fn clone(&self) -> Self {
+        self.archetype.view_all()
     }
 }
 

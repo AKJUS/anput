@@ -5,6 +5,7 @@ use crate::{
     },
     component::Component,
     entity::{Entity, EntityDenseMap},
+    view::WorldView,
     world::World,
 };
 use intuicio_data::type_hash::TypeHash;
@@ -72,6 +73,48 @@ impl<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>> Query<'a, LOC
     pub fn query(&self, world: &'a World) -> TypedQueryIter<'a, LOCKING, Fetch> {
         world.query::<'a, LOCKING, Fetch>()
     }
+
+    pub fn query_view(&self, view: &'a WorldView) -> TypedQueryIter<'a, LOCKING, Fetch> {
+        view.query::<'a, LOCKING, Fetch>()
+    }
+}
+
+impl<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>> TypedQueryFetch<'a, LOCKING>
+    for Query<'a, LOCKING, Fetch>
+{
+    type Value = ();
+    type Access = ();
+
+    fn does_accept_archetype(archetype: &Archetype) -> bool {
+        Fetch::does_accept_archetype(archetype)
+    }
+
+    fn access(_: &Archetype) -> Result<Self::Access, QueryError> {
+        Ok(())
+    }
+
+    fn fetch(_: &mut Self::Access) -> Option<Self::Value> {
+        Some(())
+    }
+}
+
+impl<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>> TypedLookupFetch<'a, LOCKING>
+    for Query<'a, LOCKING, Fetch>
+{
+    type Value = ();
+    type Access = ();
+
+    fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
+        if Fetch::does_accept_archetype(archetype) {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    fn fetch(_: &mut Self::Access, _: Entity) -> Option<Self::Value> {
+        Some(())
+    }
 }
 
 pub struct Lookup<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
@@ -108,8 +151,59 @@ impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> Lookup<'a, L
         world.lookup::<'a, LOCKING, Fetch>(entities)
     }
 
+    pub fn lookup_view(
+        &self,
+        view: &'a WorldView,
+        entities: impl IntoIterator<Item = Entity> + 'a,
+    ) -> TypedLookupIter<'a, LOCKING, Fetch> {
+        view.lookup::<'a, LOCKING, Fetch>(entities)
+    }
+
     pub fn lookup_access(&self, world: &'a World) -> TypedLookupAccess<'a, LOCKING, Fetch> {
         world.lookup_access::<'a, LOCKING, Fetch>()
+    }
+
+    pub fn lookup_access_view(&self, view: &'a WorldView) -> TypedLookupAccess<'a, LOCKING, Fetch> {
+        view.lookup_access::<'a, LOCKING, Fetch>()
+    }
+}
+
+impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> TypedLookupFetch<'a, LOCKING>
+    for Lookup<'a, LOCKING, Fetch>
+{
+    type Value = ();
+    type Access = ();
+
+    fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
+        if Fetch::try_access(archetype).is_some() {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    fn fetch(_: &mut Self::Access, _: Entity) -> Option<Self::Value> {
+        Some(())
+    }
+}
+
+impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> TypedQueryFetch<'a, LOCKING>
+    for Lookup<'a, LOCKING, Fetch>
+{
+    type Value = ();
+    type Access = ();
+
+    fn does_accept_archetype(archetype: &Archetype) -> bool {
+        let archetype = unsafe { std::mem::transmute::<&Archetype, &Archetype>(archetype) };
+        Fetch::try_access(archetype).is_some()
+    }
+
+    fn access(_: &'a Archetype) -> Result<Self::Access, QueryError> {
+        Ok(())
+    }
+
+    fn fetch(_: &mut Self::Access) -> Option<Self::Value> {
+        Some(())
     }
 }
 
@@ -629,7 +723,7 @@ macro_rules! impl_typed_lookup_fetch_tuple {
                 Some(($($type::try_access(archetype)?,)+))
             }
 
-            fn fetch(access: & mut Self::Access, entity: Entity) -> Option<Self::Value> {
+            fn fetch(access: &mut Self::Access, entity: Entity) -> Option<Self::Value> {
                 #[allow(non_snake_case)]
                 let ($($type,)+) = access;
                 Some(($($type::fetch($type, entity)?,)+))
@@ -674,6 +768,18 @@ impl<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>>
     pub fn new(world: &'a World) -> Self {
         Self {
             archetypes: world
+                .archetypes()
+                .filter(|archetype| Fetch::does_accept_archetype(archetype))
+                .collect(),
+            index: 0,
+            access: None,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn new_view(view: &'a WorldView) -> Self {
+        Self {
+            archetypes: view
                 .archetypes()
                 .filter(|archetype| Fetch::does_accept_archetype(archetype))
                 .collect(),
@@ -734,6 +840,17 @@ impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>
             _phantom: PhantomData,
         }
     }
+
+    pub fn new_view(view: &'a WorldView, entities: impl IntoIterator<Item = Entity> + 'a) -> Self {
+        Self {
+            access: view
+                .archetypes()
+                .filter_map(|archetype| Fetch::try_access(archetype))
+                .collect(),
+            entities: Box::new(entities.into_iter()),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> Iterator
@@ -763,6 +880,16 @@ impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>
     pub fn new(world: &'a World) -> Self {
         Self {
             access: world
+                .archetypes()
+                .filter_map(|archetype| Fetch::try_access(archetype))
+                .collect(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn new_view(view: &'a WorldView) -> Self {
+        Self {
+            access: view
                 .archetypes()
                 .filter_map(|archetype| Fetch::try_access(archetype))
                 .collect(),
@@ -902,6 +1029,21 @@ impl DynamicQueryFilter {
     ) -> DynamicQueryIter<'a, LOCKING> {
         world.dynamic_query::<LOCKING>(self)
     }
+
+    pub fn lookup<'a, const LOCKING: bool>(
+        &self,
+        world: &'a World,
+        entities: impl IntoIterator<Item = Entity> + 'a,
+    ) -> DynamicLookupIter<'a, LOCKING> {
+        world.dynamic_lookup::<LOCKING>(self, entities)
+    }
+
+    pub fn lookup_access<'a, const LOCKING: bool>(
+        &self,
+        world: &'a World,
+    ) -> DynamicLookupAccess<'a, LOCKING> {
+        world.dynamic_lookup_access::<LOCKING>(self)
+    }
 }
 
 pub struct DynamicQueryItem<'a> {
@@ -959,6 +1101,18 @@ impl<'a, const LOCKING: bool> DynamicQueryIter<'a, LOCKING> {
         Self {
             columns: filter.columns(),
             archetypes: world
+                .archetypes()
+                .filter(|archetype| filter.does_accept_archetype(archetype))
+                .collect(),
+            index: 0,
+            access: None,
+        }
+    }
+
+    pub fn new_view(filter: &DynamicQueryFilter, view: &'a WorldView) -> Self {
+        Self {
+            columns: filter.columns(),
+            archetypes: view
                 .archetypes()
                 .filter(|archetype| filter.does_accept_archetype(archetype))
                 .collect(),
@@ -1048,6 +1202,29 @@ impl<'a, const LOCKING: bool> DynamicLookupIter<'a, LOCKING> {
             entities: Box::new(entities.into_iter()),
         }
     }
+
+    pub fn new_view(
+        filter: &DynamicQueryFilter,
+        view: &'a WorldView,
+        entities: impl IntoIterator<Item = Entity> + 'a,
+    ) -> Self {
+        Self {
+            columns: filter.columns(),
+            access: view
+                .archetypes()
+                .filter(|archetype| filter.does_accept_archetype(archetype))
+                .flat_map(|archetype| {
+                    filter.columns_iter().filter_map(|(type_hash, unique)| {
+                        Some((
+                            archetype.entities(),
+                            archetype.dynamic_column(type_hash, unique).ok()?,
+                        ))
+                    })
+                })
+                .collect(),
+            entities: Box::new(entities.into_iter()),
+        }
+    }
 }
 
 impl<'a, const LOCKING: bool> Iterator for DynamicLookupIter<'a, LOCKING> {
@@ -1089,6 +1266,24 @@ impl<'a, const LOCKING: bool> DynamicLookupAccess<'a, LOCKING> {
         Self {
             columns: filter.columns(),
             access: world
+                .archetypes()
+                .filter(|archetype| filter.does_accept_archetype(archetype))
+                .flat_map(|archetype| {
+                    filter.columns_iter().filter_map(|(type_hash, unique)| {
+                        Some((
+                            archetype.entities(),
+                            archetype.dynamic_column(type_hash, unique).ok()?,
+                        ))
+                    })
+                })
+                .collect(),
+        }
+    }
+
+    pub fn new_view(filter: &DynamicQueryFilter, view: &'a WorldView) -> Self {
+        Self {
+            columns: filter.columns(),
+            access: view
                 .archetypes()
                 .filter(|archetype| filter.does_accept_archetype(archetype))
                 .flat_map(|archetype| {

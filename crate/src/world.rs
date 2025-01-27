@@ -21,18 +21,42 @@ use std::{
     sync::{Arc, RwLock, RwLockReadGuard},
 };
 
+/// Represents errors that can occur in the ECS `World`.
 #[derive(Debug, PartialEq, Eq)]
 pub enum WorldError {
+    /// Error related to an archetype operation.
     Archetype(ArchetypeError),
+    /// Indicates that the system has reached the maximum capacity for entity IDs.
     ReachedEntityIdCapacity,
+    /// Indicates that the system has reached the maximum capacity for archetype IDs.
     ReachedArchetypeIdCapacity,
+    /// Indicates that an operation was attempted on an entity that does not exist.
     EntityDoesNotExists { entity: Entity },
+    /// Indicates that an operation was attempted on an archetype that does not exist.
     ArchetypeDoesNotExists { id: u32 },
+    /// Indicates an attempt to access the same archetype mutably more than once, which could lead to data race issues.
     DuplicateMutableArchetypeAccess { id: u32 },
+    /// Indicates that an operation involved an empty column set, which is invalid in the ECS context.
     EmptyColumnSet,
 }
 
 impl WorldError {
+    /// Allows certain errors to be ignored by providing a fallback value (`ok`).
+    ///
+    /// This method checks whether the error matches any of the allowed error variants
+    /// provided in `items`. If a match is found, the provided fallback value (`ok`) is
+    /// returned instead. Otherwise, the original error is returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - A `Result` that may contain an error to evaluate.
+    /// * `items` - A collection of `WorldError` variants to allow.
+    /// * `ok` - The value to return if the error matches one of the allowed variants.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(ok)` if the error matches an allowed variant.
+    /// * `Err(error)` if the error does not match any allowed variant.
     pub fn allow<T>(
         input: Result<T, Self>,
         items: impl IntoIterator<Item = Self>,
@@ -81,6 +105,8 @@ impl std::fmt::Display for WorldError {
     }
 }
 
+/// Manages the lifecycle of entities and maps them to archetypes.
+/// Tracks entities using a table and maintains reusable IDs to optimize performance.
 #[derive(Default)]
 struct EntityMap {
     id_generator: u32,
@@ -91,14 +117,17 @@ struct EntityMap {
 }
 
 impl EntityMap {
+    /// Returns `true` if the map contains no active entities.
     fn is_empty(&self) -> bool {
         self.size == 0
     }
 
+    /// Returns the number of active entities in the map.
     fn len(&self) -> usize {
         self.size
     }
 
+    /// Returns an iterator over all active entities.
     fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
         self.table
             .iter()
@@ -112,6 +141,7 @@ impl EntityMap {
             })
     }
 
+    /// Clears the map, removing all entities and resetting internal state.
     fn clear(&mut self) {
         self.id_generator = 0;
         self.table.clear();
@@ -119,6 +149,12 @@ impl EntityMap {
         self.size = 0;
     }
 
+    /// Acquires a new entity. Either reuses an entity ID from the pool or generates a new one.
+    ///
+    /// # Returns
+    /// * `Ok((entity, &mut Option<u32>))` - The newly acquired entity and a mutable reference
+    ///   to its associated archetype.
+    /// * `Err(WorldError::ReachedEntityIdCapacity)` - If the ID generator has reached its maximum capacity.
     fn acquire(&mut self) -> Result<(Entity, &mut Option<u32>), WorldError> {
         if let Some(mut entity) = self.reusable.pop() {
             let (generation, archetype) = &mut self.table[entity.id() as usize];
@@ -144,6 +180,11 @@ impl EntityMap {
         }
     }
 
+    /// Releases an entity back into the reusable pool, if it exists.
+    ///
+    /// # Returns
+    /// * `Ok(u32)` - The archetype ID of the released entity.
+    /// * `Err(WorldError::EntityDoesNotExists)` - If the entity does not exist or is already released.
     fn release(&mut self, entity: Entity) -> Result<u32, WorldError> {
         if let Some((generation, archetype)) = self.table.get_mut(entity.id() as usize) {
             if entity.generation() == *generation {
@@ -162,6 +203,11 @@ impl EntityMap {
         }
     }
 
+    /// Retrieves the archetype ID for the given entity.
+    ///
+    /// # Returns
+    /// * `Ok(u32)` - The archetype ID associated with the entity.
+    /// * `Err(WorldError::EntityDoesNotExists)` - If the entity does not exist or is invalid.
     fn get(&self, entity: Entity) -> Result<u32, WorldError> {
         if let Some((generation, archetype)) = self.table.get(entity.id() as usize) {
             if entity.generation() == *generation {
@@ -178,6 +224,11 @@ impl EntityMap {
         }
     }
 
+    /// Sets the archetype ID for the given entity.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the operation is successful.
+    /// * `Err(WorldError::EntityDoesNotExists)` - If the entity does not exist or is invalid.
     fn set(&mut self, entity: Entity, archetype_id: u32) -> Result<(), WorldError> {
         if let Some((generation, archetype)) = self.table.get_mut(entity.id() as usize) {
             if entity.generation() == *generation {
@@ -196,6 +247,7 @@ impl EntityMap {
     }
 }
 
+/// Manages a collection of archetypes, including the creation, access, and reuse of archetype IDs.
 #[derive(Default)]
 struct ArchetypeMap {
     id_generator: u32,
@@ -205,22 +257,30 @@ struct ArchetypeMap {
 }
 
 impl ArchetypeMap {
+    /// Returns an iterator over all existing archetypes in the map.
     fn iter(&self) -> impl Iterator<Item = &Archetype> + '_ {
         self.table.iter().filter_map(|archetype| archetype.as_ref())
     }
 
+    /// Returns a mutable iterator over all existing archetypes in the map.
     fn iter_mut(&mut self) -> impl Iterator<Item = &mut Archetype> + '_ {
         self.table
             .iter_mut()
             .filter_map(|archetype| archetype.as_mut())
     }
 
+    /// Clears all archetypes and resets the internal state of the map.
     fn clear(&mut self) {
         self.id_generator = 0;
         self.table.clear();
         self.reusable.clear();
     }
 
+    /// Acquires a new archetype ID, either from the reusable pool or by generating a new one.
+    ///
+    /// # Returns
+    /// * `Ok((u32, &mut Option<Archetype>))` - The ID of the acquired archetype and a mutable reference to it.
+    /// * `Err(WorldError::ReachedArchetypeIdCapacity)` - If the ID generator has reached its maximum capacity.
     fn acquire(&mut self) -> Result<(u32, &mut Option<Archetype>), WorldError> {
         if let Some(id) = self.reusable.pop() {
             let archetype = &mut self.table[id as usize];
@@ -242,6 +302,11 @@ impl ArchetypeMap {
         }
     }
 
+    /// Retrieves an immutable reference to an archetype by its ID.
+    ///
+    /// # Returns
+    /// * `Ok(&Archetype)` - A reference to the archetype.
+    /// * `Err(WorldError::ArchetypeDoesNotExists)` - If the ID does not correspond to a valid archetype.
     fn get(&self, id: u32) -> Result<&Archetype, WorldError> {
         if let Some(archetype) = self
             .table
@@ -254,6 +319,11 @@ impl ArchetypeMap {
         }
     }
 
+    /// Retrieves a mutable reference to an archetype by its ID.
+    ///
+    /// # Returns
+    /// * `Ok(&mut Archetype)` - A mutable reference to the archetype.
+    /// * `Err(WorldError::ArchetypeDoesNotExists)` - If the ID does not correspond to a valid archetype.
     fn get_mut(&mut self, id: u32) -> Result<&mut Archetype, WorldError> {
         if let Some(archetype) = self
             .table
@@ -266,6 +336,12 @@ impl ArchetypeMap {
         }
     }
 
+    /// Retrieves mutable references to two distinct archetypes by their IDs.
+    ///
+    /// # Returns
+    /// * `Ok([&mut Archetype; 2])` - Mutable references to the requested archetypes.
+    /// * `Err(WorldError::DuplicateMutableArchetypeAccess)` - If the same ID is provided for both archetypes.
+    /// * `Err(WorldError::ArchetypeDoesNotExists)` - If one or both IDs do not correspond to valid archetypes.
     fn get_mut_two(&mut self, [a, b]: [u32; 2]) -> Result<[&mut Archetype; 2], WorldError> {
         if a == b {
             return Err(WorldError::DuplicateMutableArchetypeAccess { id: a });
@@ -299,6 +375,11 @@ impl ArchetypeMap {
         }
     }
 
+    /// Finds an archetype that matches the given set of columns exactly.
+    ///
+    /// # Returns
+    /// * `Some(u32)` - The ID of the matching archetype.
+    /// * `None` - If no archetype matches the provided columns.
     fn find_by_columns_exact(&self, columns: &[ArchetypeColumnInfo]) -> Option<u32> {
         for (id, archetype) in self.table.iter().enumerate() {
             if let Some(archetype) = archetype.as_ref() {
@@ -311,6 +392,8 @@ impl ArchetypeMap {
     }
 }
 
+/// Represents the connections of a relation between entities.
+/// Can handle zero, one, or multiple connections.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum RelationConnections<T: Component> {
     Zero([(T, Entity); 0]),
@@ -324,6 +407,7 @@ impl<T: Component> Default for RelationConnections<T> {
     }
 }
 
+/// Represents a relationship between entities with associated metadata (payload).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Relation<T: Component> {
     connections: RelationConnections<T>,
@@ -338,10 +422,12 @@ impl<T: Component> Default for Relation<T> {
 }
 
 impl<T: Component> Relation<T> {
+    /// Installs the relation type into the provided registry for entity processing.
     pub fn install_to_registry(registry: &mut Registry) {
         registry.add_type(NativeStructBuilder::new::<Self>().build());
     }
 
+    /// Registers relation-specific entity remapping and inspection logic with the processor.
     pub fn register_to_processor(processor: &mut WorldProcessor) {
         processor.register_entity_remapping::<Self>(|relation, mapping| {
             let iter = match &mut relation.connections {
@@ -369,6 +455,7 @@ impl<T: Component> Relation<T> {
         });
     }
 
+    /// Registers debug-specific formatting for this relation in the processor.
     pub fn register_to_processor_debug(processor: &mut WorldProcessor)
     where
         T: std::fmt::Debug,
@@ -376,19 +463,23 @@ impl<T: Component> Relation<T> {
         processor.register_debug_formatter::<Self>();
     }
 
+    /// Creates a new relation with a single connection.
     pub fn new(payload: T, entity: Entity) -> Self {
         Self::default().with(payload, entity)
     }
 
+    /// Adds a connection to the relation and returns the modified relation.
     pub fn with(mut self, payload: T, entity: Entity) -> Self {
         self.add(payload, entity);
         self
     }
 
+    /// Returns the hash for the type of the payload.
     pub fn type_hash(&self) -> TypeHash {
         TypeHash::of::<T>()
     }
 
+    /// Checks if the relation has no connections.
     pub fn is_empty(&self) -> bool {
         match &self.connections {
             RelationConnections::Zero(_) => true,
@@ -397,6 +488,7 @@ impl<T: Component> Relation<T> {
         }
     }
 
+    /// Adds a connection to the relation, updating or inserting as necessary.
     pub fn add(&mut self, payload: T, entity: Entity) {
         self.connections = match std::mem::take(&mut self.connections) {
             RelationConnections::Zero(_) => RelationConnections::One([(payload, entity)]),
@@ -412,6 +504,7 @@ impl<T: Component> Relation<T> {
         };
     }
 
+    /// Removes a connection associated with an entity.
     pub fn remove(&mut self, entity: Entity) {
         self.connections = match std::mem::take(&mut self.connections) {
             RelationConnections::Zero(a) => RelationConnections::Zero(a),
@@ -437,6 +530,7 @@ impl<T: Component> Relation<T> {
         }
     }
 
+    /// Checks if the relation has a connection with the given entity.
     pub fn has(&self, entity: Entity) -> bool {
         match &self.connections {
             RelationConnections::Zero(_) => false,
@@ -445,6 +539,7 @@ impl<T: Component> Relation<T> {
         }
     }
 
+    /// Gets the payload associated with the given entity.
     pub fn payload(&self, entity: Entity) -> Option<&T> {
         match &self.connections {
             RelationConnections::Zero(_) => None,
@@ -462,6 +557,7 @@ impl<T: Component> Relation<T> {
         }
     }
 
+    /// Gets a mutable reference to the payload associated with the given entity.
     pub fn payload_mut(&mut self, entity: Entity) -> Option<&mut T> {
         match &mut self.connections {
             RelationConnections::Zero(_) => None,
@@ -479,6 +575,7 @@ impl<T: Component> Relation<T> {
         }
     }
 
+    /// Returns an iterator over all entities in the relation.
     pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         match &self.connections {
             RelationConnections::Zero(a) => a.iter(),
@@ -488,6 +585,7 @@ impl<T: Component> Relation<T> {
         .map(|(_, e)| *e)
     }
 
+    /// Returns an iterator over all payload-entity pairs in the relation.
     pub fn iter(&self) -> impl Iterator<Item = (&T, Entity)> {
         match &self.connections {
             RelationConnections::Zero(a) => a.iter(),
@@ -497,6 +595,7 @@ impl<T: Component> Relation<T> {
         .map(|(p, e)| (p, *e))
     }
 
+    /// Returns a mutable iterator over all payload-entity pairs in the relation.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&mut T, Entity)> {
         match &mut self.connections {
             RelationConnections::Zero(a) => a.iter_mut(),
@@ -507,6 +606,7 @@ impl<T: Component> Relation<T> {
     }
 }
 
+/// An iterator that traverses relations in a graph-like structure, tracking visited entities.
 pub struct RelationsTraverseIter<'a, const LOCKING: bool, T: Component> {
     world: &'a World,
     incoming: bool,
@@ -545,24 +645,54 @@ impl<const LOCKING: bool, T: Component> Iterator for RelationsTraverseIter<'_, L
     }
 }
 
+/// Represents a record of changes made to entities in the world, tracking their components.
 #[derive(Default, Clone)]
 pub struct WorldChanges {
     table: HashMap<Entity, Vec<TypeHash>>,
 }
 
 impl WorldChanges {
+    /// Clears all tracked changes.
+    ///
+    /// After calling this, the structure will no longer contain any information about entities
+    /// or their components.
     pub fn clear(&mut self) {
         self.table.clear();
     }
 
+    /// Checks if a specific entity exists in the tracked changes.
+    ///
+    /// # Arguments
+    /// * `entity` - The entity to check for.
+    ///
+    /// # Returns
+    /// `true` if the entity is present in the changes, `false` otherwise.
     pub fn has_entity(&self, entity: Entity) -> bool {
         self.table.contains_key(&entity)
     }
 
+    /// Checks if a specific entity has a component of type `T`.
+    ///
+    /// # Arguments
+    /// * `entity` - The entity to check.
+    ///
+    /// # Type Parameters
+    /// * `T` - The component type to check for.
+    ///
+    /// # Returns
+    /// `true` if the entity has the component, `false` otherwise.
     pub fn has_entity_component<T>(&self, entity: Entity) -> bool {
         self.has_entity_component_raw(entity, TypeHash::of::<T>())
     }
 
+    /// Checks if a specific entity has a component with the given type hash.
+    ///
+    /// # Arguments
+    /// * `entity` - The entity to check.
+    /// * `type_hash` - The type hash of the component.
+    ///
+    /// # Returns
+    /// `true` if the entity has the component, `false` otherwise.
     pub fn has_entity_component_raw(&self, entity: Entity, type_hash: TypeHash) -> bool {
         self.table
             .get(&entity)
@@ -570,26 +700,58 @@ impl WorldChanges {
             .unwrap_or_default()
     }
 
+    /// Checks if any entity in the world has a component of type `T`.
+    ///
+    /// # Type Parameters
+    /// * `T` - The component type to check for.
+    ///
+    /// # Returns
+    /// `true` if any entity has the component, `false` otherwise.
     pub fn has_component<T>(&self) -> bool {
         self.has_component_raw(TypeHash::of::<T>())
     }
 
+    /// Checks if any entity in the world has a component with the given type hash.
+    ///
+    /// # Arguments
+    /// * `type_hash` - The type hash of the component.
+    ///
+    /// # Returns
+    /// `true` if any entity has the component, `false` otherwise.
     pub fn has_component_raw(&self, type_hash: TypeHash) -> bool {
         self.table
             .values()
             .any(|components| components.contains(&type_hash))
     }
 
+    /// Iterates over all entities and their associated component type hashes.
+    ///
+    /// # Returns
+    /// An iterator of tuples `(Entity, &[TypeHash])`.
     pub fn iter(&self) -> impl Iterator<Item = (Entity, &[TypeHash])> {
         self.table
             .iter()
             .map(|(entity, components)| (*entity, components.as_slice()))
     }
 
+    /// Iterates over all entities that have a component of type `T`.
+    ///
+    /// # Type Parameters
+    /// * `T` - The component type to filter by.
+    ///
+    /// # Returns
+    /// An iterator over entities that have the specified component.
     pub fn iter_of<T>(&self) -> impl Iterator<Item = Entity> + '_ {
         self.iter_of_raw(TypeHash::of::<T>())
     }
 
+    /// Iterates over all entities that have a component with the given type hash.
+    ///
+    /// # Arguments
+    /// * `type_hash` - The type hash of the component to filter by.
+    ///
+    /// # Returns
+    /// An iterator over entities that have the specified component.
     pub fn iter_of_raw(&self, type_hash: TypeHash) -> impl Iterator<Item = Entity> + '_ {
         self.table
             .iter()
@@ -598,7 +760,11 @@ impl WorldChanges {
     }
 }
 
+/// Represents the main data structure of the ECS (Entity-Component System),
+/// managing entities, components, and their organizational structure.
 pub struct World {
+    /// The initial capacity for new archetypes. Determines the number of archetypes that can be
+    /// allocated before resizing.
     pub new_archetype_capacity: usize,
     entities: EntityMap,
     archetypes: ArchetypeMap,

@@ -5,6 +5,7 @@ pub mod commands;
 pub mod component;
 pub mod database;
 pub mod entity;
+pub mod jobs;
 pub mod multiverse;
 pub mod observer;
 pub mod prefab;
@@ -14,6 +15,7 @@ pub mod resources;
 pub mod scheduler;
 pub mod systems;
 pub mod universe;
+pub mod view;
 pub mod world;
 
 pub mod prelude {
