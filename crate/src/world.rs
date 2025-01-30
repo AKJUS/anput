@@ -530,6 +530,11 @@ impl<T: Component> Relation<T> {
         }
     }
 
+    /// Clears all stored relations.
+    pub fn clear(&mut self) {
+        self.connections = Default::default();
+    }
+
     /// Checks if the relation has a connection with the given entity.
     pub fn has(&self, entity: Entity) -> bool {
         match &self.connections {
@@ -806,6 +811,18 @@ impl World {
     #[inline]
     pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.entities.iter()
+    }
+
+    #[inline]
+    pub fn entity_by_index(&self, mut index: usize) -> Option<Entity> {
+        for archetype in self.archetypes() {
+            if index >= archetype.len() {
+                index -= archetype.len();
+                continue;
+            }
+            return archetype.entities().get(index);
+        }
+        None
     }
 
     #[inline]
@@ -1408,7 +1425,23 @@ impl World {
             }
             return Ok(());
         }
-        self.insert(from, (Relation::<T>::default().with(payload, to),))
+        self.insert(from, (Relation::<T>::new(payload, to),))
+    }
+
+    pub fn relate_one<const LOCKING: bool, T: Component>(
+        &mut self,
+        payload: T,
+        from: Entity,
+        to: Entity,
+    ) -> Result<(), WorldError> {
+        if let Ok(mut relation) = self.get::<LOCKING, Relation<T>>(from, true) {
+            if let Some(relation) = relation.write() {
+                relation.clear();
+                relation.add(payload, to);
+            }
+            return Ok(());
+        }
+        self.insert(from, (Relation::<T>::new(payload, to),))
     }
 
     pub fn unrelate<const LOCKING: bool, T: Component>(

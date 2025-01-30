@@ -68,6 +68,18 @@ impl WorldView {
     }
 
     #[inline]
+    pub fn entity_by_index(&self, mut index: usize) -> Option<Entity> {
+        for archetype in self.archetypes() {
+            if index >= archetype.len() {
+                index -= archetype.len();
+                continue;
+            }
+            return archetype.entities().get(index);
+        }
+        None
+    }
+
+    #[inline]
     pub fn entities_range(
         &self,
         range: impl RangeBounds<usize>,
