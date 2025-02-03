@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let mut visited = HashSet::with_capacity(view.len());
             let mut stack = Vec::with_capacity(view.len());
 
-            let entity = view.entity_by_index(ctx.work_group)?;
+            let entity = view.entity_by_index(ctx.work_group_index)?;
             if let Some(found) = dfs(entity, &view, &mut visited, &mut stack) {
                 return Some(found);
             }

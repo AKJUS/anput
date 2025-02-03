@@ -5,6 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-anput = { version = "0.8", path = "../crate" }
+anput = { version = "0.9", path = "../crate" }
 crossterm = "0.28"
 vek = "0.17"

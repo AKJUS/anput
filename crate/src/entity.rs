@@ -87,7 +87,11 @@ impl Entity {
 
 impl std::fmt::Display for Entity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "@{}:#{}", self.id, self.generation)
+        if self.is_valid() {
+            write!(f, "@{}:#{}", self.id, self.generation)
+        } else {
+            write!(f, "@none:#{}", self.generation)
+        }
     }
 }
 

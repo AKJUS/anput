@@ -309,7 +309,8 @@ mod tests {
         // Process view with parallelized execution of view work groups.
         let sum = jobs
             .broadcast(move |ctx| {
-                let entities = view.entities_work_group(ctx.work_group, ctx.workers_count, 10);
+                let entities =
+                    view.entities_work_group(ctx.work_group_index, ctx.work_groups_count, 10);
                 view.lookup::<true, &usize>(entities)
                     .copied()
                     .sum::<usize>()

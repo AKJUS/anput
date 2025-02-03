@@ -2,55 +2,65 @@ use crate::{
     bundle::{Bundle, BundleChain},
     component::Component,
     entity::Entity,
-    query::Exclude,
+    jobs::{Jobs, ScopedJobs},
     systems::{System, SystemContext, SystemObject},
     universe::{QuickPlugin, Universe},
     world::Relation,
 };
 use std::{
+    borrow::Cow,
     collections::{HashSet, VecDeque},
     error::Error,
+    sync::RwLock,
 };
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SystemPriority(pub usize);
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SystemOrder(pub usize);
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct SystemGroupChild;
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct SystemDependsOn;
 
-pub struct GraphScheduler<const LOCKING: bool> {
-    // TODO: named and unnamed thread pool for parallel systems execution.
-}
-
-impl<const LOCKING: bool> Default for GraphScheduler<LOCKING> {
-    fn default() -> Self {
-        Self {}
+impl SystemPriority {
+    pub fn top() -> Self {
+        Self(usize::MAX)
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+
+pub struct SystemOrder(pub usize);
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SystemGroupChild;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SystemDependsOn;
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum SystemParallelize {
+    #[default]
+    AnyWorker,
+    NamedWorker(Cow<'static, str>),
+}
+
+#[derive(Default)]
+pub struct GraphScheduler<const LOCKING: bool> {
+    jobs: Jobs,
+}
+
 impl<const LOCKING: bool> GraphScheduler<LOCKING> {
+    pub fn new(jobs: Jobs) -> Self {
+        Self { jobs }
+    }
+
     pub fn run(&mut self, universe: &mut Universe) -> Result<(), Box<dyn Error>> {
         let mut visited = HashSet::with_capacity(universe.systems.len());
-        Self::validate_no_cycles(
-            universe,
-            universe
-                .systems
-                .query::<LOCKING, (Entity, Exclude<Relation<SystemGroupChild>>)>()
-                .map(|(entity, _)| entity)
-                .collect(),
-            &mut visited,
-        )?;
+        let roots = Self::find_roots(universe);
+        Self::validate_no_cycles(universe, roots.iter().copied(), &mut visited)?;
         visited.clear();
-        let mut queue = universe
-            .systems
-            .query::<LOCKING, (Entity, Exclude<Relation<SystemGroupChild>>)>()
-            .map(|(entity, _)| entity)
-            .collect::<VecDeque<_>>();
-        while let Some(entity) = queue.pop_front() {
-            Self::run_node(universe, entity, &mut visited, &mut queue)?;
+        let queue = VecDeque::default();
+        let visited = RwLock::new(visited);
+        let queue = RwLock::new(queue);
+        self.run_group(universe, roots.into_iter(), &visited, &queue)?;
+        while let Some(entity) = queue.write().unwrap().pop_front() {
+            let mut scoped_jobs = ScopedJobs::new(&self.jobs);
+            self.run_node(universe, entity, &visited, &queue, &mut scoped_jobs)?;
         }
         universe.clear_changes();
         universe.execute_commands::<LOCKING>();
@@ -58,9 +68,24 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
         Ok(())
     }
 
+    fn find_roots(universe: &Universe) -> HashSet<Entity> {
+        let mut entities = universe.systems.entities().collect::<HashSet<_>>();
+        for relations in universe
+            .systems
+            .query::<LOCKING, &Relation<SystemGroupChild>>()
+        {
+            for entity in relations.entities() {
+                if entities.contains(&entity) {
+                    entities.remove(&entity);
+                }
+            }
+        }
+        entities
+    }
+
     fn validate_no_cycles(
         universe: &Universe,
-        entities: Vec<Entity>,
+        entities: impl Iterator<Item = Entity>,
         visited: &mut HashSet<Entity>,
     ) -> Result<(), Box<dyn Error>> {
         for entity in entities {
@@ -76,55 +101,82 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
                     .systems
                     .relations_outgoing::<LOCKING, SystemGroupChild>(entity)
                     .map(|(_, _, entity)| entity)
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into_iter(),
                 visited,
             )?;
         }
         Ok(())
     }
 
-    fn run_node(
-        universe: &Universe,
+    fn run_node<'env>(
+        &'env self,
+        universe: &'env Universe,
         entity: Entity,
-        visited: &mut HashSet<Entity>,
-        queue: &mut VecDeque<Entity>,
-    ) -> Result<bool, Box<dyn Error>> {
-        if visited.contains(&entity) {
-            return Ok(true);
+        visited: &'env RwLock<HashSet<Entity>>,
+        queue: &'env RwLock<VecDeque<Entity>>,
+        scoped_jobs: &mut ScopedJobs<'env, Result<(), String>>,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut visited_lock = visited.write().unwrap();
+        let mut queue_lock = queue.write().unwrap();
+        if visited_lock.contains(&entity) {
+            return Ok(());
         }
         if universe
             .systems
             .relations_outgoing::<LOCKING, SystemDependsOn>(entity)
-            .any(|(_, _, other)| !visited.contains(&other))
+            .any(|(_, _, other)| !visited_lock.contains(&other))
         {
-            queue.push_back(entity);
-            return Ok(false);
+            queue_lock.push_back(entity);
+            return Ok(());
         }
-        if let Ok(system) = universe.systems.component::<LOCKING, SystemObject>(entity) {
-            if system.should_run(SystemContext::new(universe, entity)) {
-                system.run(SystemContext::new(universe, entity))?;
+        visited_lock.insert(entity);
+        drop(visited_lock);
+        drop(queue_lock);
+        let job = move || -> Result<(), String> {
+            if let Ok(system) = universe.systems.component::<LOCKING, SystemObject>(entity) {
+                if system.should_run(SystemContext::new(universe, entity)) {
+                    system
+                        .run(SystemContext::new(universe, entity))
+                        .map_err(|error| format!("{}", error))?;
+                }
             }
+            self.run_group(
+                universe,
+                universe
+                    .systems
+                    .relations_outgoing::<LOCKING, SystemGroupChild>(entity)
+                    .map(|(_, _, entity)| entity),
+                visited,
+                queue,
+            )
+            .map_err(|error| format!("{}", error))?;
+            Ok(())
+        };
+        if let Ok(parallelize) = universe
+            .systems
+            .component::<LOCKING, SystemParallelize>(entity)
+        {
+            match &*parallelize {
+                SystemParallelize::AnyWorker => scoped_jobs.queue(move |_| job())?,
+                SystemParallelize::NamedWorker(cow) => {
+                    scoped_jobs.queue_named(cow.as_ref(), move |_| job())?
+                }
+            }
+        } else {
+            job()?;
         }
-        visited.insert(entity);
-        Self::run_group(
-            universe,
-            universe
-                .systems
-                .relations_outgoing::<LOCKING, SystemGroupChild>(entity)
-                .map(|(_, _, entity)| entity),
-            visited,
-            queue,
-        )?;
-        Ok(true)
+        Ok(())
     }
 
     fn run_group(
+        &self,
         universe: &Universe,
         entities: impl Iterator<Item = Entity>,
-        visited: &mut HashSet<Entity>,
-        queue: &mut VecDeque<Entity>,
+        visited: &RwLock<HashSet<Entity>>,
+        queue: &RwLock<VecDeque<Entity>>,
     ) -> Result<(), Box<dyn Error>> {
-        let mut selected = entities
+        let mut ordered = entities
             .map(|entity| {
                 let priority = universe
                     .systems
@@ -141,14 +193,18 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
                 (entity, priority, order)
             })
             .collect::<Vec<_>>();
-        selected.sort_by(|(_, priority_a, order_a), (_, priority_b, order_b)| {
+        ordered.sort_by(|(_, priority_a, order_a), (_, priority_b, order_b)| {
             priority_a
                 .cmp(priority_b)
                 .reverse()
                 .then(order_a.cmp(order_b))
         });
-        for (entity, _, _) in selected {
-            Self::run_node(universe, entity, visited, queue)?;
+        let mut scoped_jobs = ScopedJobs::new(&self.jobs);
+        for (entity, _, _) in ordered {
+            self.run_node(universe, entity, visited, queue, &mut scoped_jobs)?;
+        }
+        for result in scoped_jobs.execute() {
+            result?;
         }
         Ok(())
     }
