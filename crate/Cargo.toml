@@ -1,6 +1,6 @@
 [package]
 name = "anput"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Scriptable Entity-Component-System (powered by Intuicio)"
@@ -16,10 +16,10 @@ deadlock-trace = []
 async = ["tokio"]
 
 [dependencies]
-intuicio-data = "0.41"
-intuicio-core = "0.41"
-intuicio-derive = "0.41"
-intuicio-framework-serde = "0.41"
+intuicio-data = "0.44"
+intuicio-core = "0.44"
+intuicio-derive = "0.44"
+intuicio-framework-serde = "0.44"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.43", features = ["rt"], optional = true }
 

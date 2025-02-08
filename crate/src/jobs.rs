@@ -6,6 +6,7 @@ use std::{
         Arc, Condvar, Mutex, RwLock,
     },
     thread::{available_parallelism, spawn, JoinHandle},
+    time::Duration,
 };
 
 type Job = Box<dyn FnOnce(JobContext) + Send + Sync>;
@@ -272,7 +273,7 @@ impl Worker {
             };
             *ready = false;
             while !*ready {
-                let Ok(new) = cvar.wait(ready) else {
+                let Ok((new, _)) = cvar.wait_timeout(ready, Duration::from_millis(10)) else {
                     return;
                 };
                 ready = new;

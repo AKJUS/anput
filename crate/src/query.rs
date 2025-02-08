@@ -3,7 +3,7 @@ use crate::{
         Archetype, ArchetypeColumnAccess, ArchetypeDynamicColumnAccess, ArchetypeDynamicColumnItem,
         ArchetypeDynamicColumnIter, ArchetypeError,
     },
-    component::Component,
+    component::{Component, ComponentRef, ComponentRefMut},
     entity::{Entity, EntityDenseMap},
     view::WorldView,
     world::World,
@@ -13,6 +13,7 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     marker::PhantomData,
+    sync::Arc,
 };
 
 #[derive(Debug)]
@@ -102,6 +103,7 @@ impl<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>> TypedLookupFe
     for Query<'a, LOCKING, Fetch>
 {
     type Value = ();
+    type ValueOne = Self::Value;
     type Access = ();
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -113,6 +115,10 @@ impl<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>> TypedLookupFe
     }
 
     fn fetch(_: &mut Self::Access, _: Entity) -> Option<Self::Value> {
+        Some(())
+    }
+
+    fn fetch_one(_: &World, _: Entity) -> Option<Self::ValueOne> {
         Some(())
     }
 }
@@ -172,6 +178,7 @@ impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> TypedLookupF
     for Lookup<'a, LOCKING, Fetch>
 {
     type Value = ();
+    type ValueOne = Self::Value;
     type Access = ();
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -183,6 +190,10 @@ impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> TypedLookupF
     }
 
     fn fetch(_: &mut Self::Access, _: Entity) -> Option<Self::Value> {
+        Some(())
+    }
+
+    fn fetch_one(_: &World, _: Entity) -> Option<Self::ValueOne> {
         Some(())
     }
 }
@@ -221,13 +232,30 @@ pub trait TypedQueryFetch<'a, const LOCKING: bool> {
 
 pub trait TypedLookupFetch<'a, const LOCKING: bool> {
     type Value;
+    type ValueOne;
     type Access;
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access>;
     fn fetch(access: &mut Self::Access, entity: Entity) -> Option<Self::Value>;
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne>;
 
     #[allow(unused_variables)]
     fn unique_access(output: &mut HashSet<TypeHash>) {}
+}
+
+pub trait TypedRelationLookupFetch<'a> {
+    type Value;
+    type Access;
+
+    fn access(world: &'a World, entity: Entity) -> Self::Access;
+    fn fetch(access: &mut Self::Access) -> Option<Self::Value>;
+}
+
+pub trait TypedRelationLookupTransform<'a> {
+    type Input;
+    type Output;
+
+    fn transform(world: &'a World, input: Self::Input) -> impl Iterator<Item = Self::Output>;
 }
 
 impl<const LOCKING: bool> TypedQueryFetch<'_, LOCKING> for () {
@@ -249,6 +277,7 @@ impl<const LOCKING: bool> TypedQueryFetch<'_, LOCKING> for () {
 
 impl<const LOCKING: bool> TypedLookupFetch<'_, LOCKING> for () {
     type Value = ();
+    type ValueOne = Self::Value;
     type Access = ();
 
     fn try_access(_: &Archetype) -> Option<Self::Access> {
@@ -256,6 +285,10 @@ impl<const LOCKING: bool> TypedLookupFetch<'_, LOCKING> for () {
     }
 
     fn fetch(_: &mut Self::Access, _: Entity) -> Option<Self::Value> {
+        Some(())
+    }
+
+    fn fetch_one(_: &World, _: Entity) -> Option<Self::ValueOne> {
         Some(())
     }
 }
@@ -279,6 +312,7 @@ impl<'a, const LOCKING: bool> TypedQueryFetch<'a, LOCKING> for Entity {
 
 impl<'a, const LOCKING: bool> TypedLookupFetch<'a, LOCKING> for Entity {
     type Value = Entity;
+    type ValueOne = Self::Value;
     type Access = &'a EntityDenseMap;
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -291,6 +325,10 @@ impl<'a, const LOCKING: bool> TypedLookupFetch<'a, LOCKING> for Entity {
         } else {
             None
         }
+    }
+
+    fn fetch_one(_: &World, entity: Entity) -> Option<Self::ValueOne> {
+        Some(entity)
     }
 }
 
@@ -313,6 +351,7 @@ impl<'a, const LOCKING: bool, T: Component> TypedQueryFetch<'a, LOCKING> for &'a
 
 impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for &'a T {
     type Value = &'a T;
+    type ValueOne = ComponentRef<'a, LOCKING, T>;
     type Access = (&'a EntityDenseMap, ArchetypeColumnAccess<'a, LOCKING, T>);
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -335,6 +374,10 @@ impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for &'
         } else {
             None
         }
+    }
+
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+        world.component::<LOCKING, T>(entity).ok()
     }
 }
 
@@ -361,6 +404,7 @@ impl<'a, const LOCKING: bool, T: Component> TypedQueryFetch<'a, LOCKING> for &'a
 
 impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for &'a mut T {
     type Value = &'a mut T;
+    type ValueOne = ComponentRefMut<'a, LOCKING, T>;
     type Access = (&'a EntityDenseMap, ArchetypeColumnAccess<'a, LOCKING, T>);
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -383,6 +427,10 @@ impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for &'
         } else {
             None
         }
+    }
+
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+        world.component_mut::<LOCKING, T>(entity).ok()
     }
 
     fn unique_access(output: &mut HashSet<TypeHash>) {
@@ -416,6 +464,7 @@ impl<'a, const LOCKING: bool, T: Component> TypedQueryFetch<'a, LOCKING> for Opt
 
 impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Option<&'a T> {
     type Value = Option<&'a T>;
+    type ValueOne = Option<ComponentRef<'a, LOCKING, T>>;
     type Access = Option<(&'a EntityDenseMap, ArchetypeColumnAccess<'a, LOCKING, T>)>;
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -438,6 +487,10 @@ impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Op
             }),
             None => Some(None),
         }
+    }
+
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+        Some(world.component::<LOCKING, T>(entity).ok())
     }
 }
 
@@ -471,6 +524,7 @@ impl<'a, const LOCKING: bool, T: Component> TypedQueryFetch<'a, LOCKING> for Opt
 
 impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Option<&'a mut T> {
     type Value = Option<&'a mut T>;
+    type ValueOne = Option<ComponentRefMut<'a, LOCKING, T>>;
     type Access = Option<(&'a EntityDenseMap, ArchetypeColumnAccess<'a, LOCKING, T>)>;
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -493,6 +547,10 @@ impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Op
             }),
             None => Some(None),
         }
+    }
+
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+        Some(world.component_mut::<LOCKING, T>(entity).ok())
     }
 
     fn unique_access(output: &mut HashSet<TypeHash>) {
@@ -521,6 +579,7 @@ impl<const LOCKING: bool, T: Component> TypedQueryFetch<'_, LOCKING> for Include
 
 impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Include<T> {
     type Value = ();
+    type ValueOne = ();
     type Access = &'a EntityDenseMap;
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -533,6 +592,14 @@ impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for In
 
     fn fetch(access: &mut Self::Access, entity: Entity) -> Option<Self::Value> {
         if access.contains(entity) {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+        if world.has_entity_component::<T>(entity) {
             Some(())
         } else {
             None
@@ -561,6 +628,7 @@ impl<const LOCKING: bool, T: Component> TypedQueryFetch<'_, LOCKING> for Exclude
 
 impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Exclude<T> {
     type Value = ();
+    type ValueOne = ();
     type Access = &'a EntityDenseMap;
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -572,7 +640,15 @@ impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Ex
     }
 
     fn fetch(access: &mut Self::Access, entity: Entity) -> Option<Self::Value> {
-        if access.contains(entity) {
+        if !access.contains(entity) {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+        if !world.has_entity_component::<T>(entity) {
             Some(())
         } else {
             None
@@ -595,6 +671,34 @@ impl<'a, T> UpdatedAccess<'a, T> {
 
     pub fn write(&'a mut self) -> &'a mut T {
         self.1
+    }
+
+    pub fn notify(&self, world: &World) {
+        world.update::<T>(self.0);
+    }
+
+    pub fn write_notified(&'a mut self, world: &World) -> &'a mut T {
+        self.notify(world);
+        self.write()
+    }
+}
+
+pub struct UpdatedAccessComponent<'a, const LOCKING: bool, T: Component>(
+    Entity,
+    ComponentRefMut<'a, LOCKING, T>,
+);
+
+impl<'a, const LOCKING: bool, T: Component> UpdatedAccessComponent<'a, LOCKING, T> {
+    pub fn entity(&self) -> Entity {
+        self.0
+    }
+
+    pub fn read(&'a self) -> &'a T {
+        &self.1
+    }
+
+    pub fn write(&'a mut self) -> &'a mut T {
+        &mut self.1
     }
 
     pub fn notify(&self, world: &World) {
@@ -637,6 +741,7 @@ impl<'a, const LOCKING: bool, T: Component> TypedQueryFetch<'a, LOCKING> for Upd
 
 impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Update<T> {
     type Value = UpdatedAccess<'a, T>;
+    type ValueOne = UpdatedAccessComponent<'a, LOCKING, T>;
     type Access = (&'a EntityDenseMap, ArchetypeColumnAccess<'a, LOCKING, T>);
 
     fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -662,8 +767,307 @@ impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Up
         }
     }
 
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+        world
+            .component_mut::<LOCKING, T>(entity)
+            .ok()
+            .map(|data| UpdatedAccessComponent(entity, data))
+    }
+
     fn unique_access(output: &mut HashSet<TypeHash>) {
         output.insert(TypeHash::of::<T>());
+    }
+}
+
+impl<'a> TypedRelationLookupFetch<'a> for () {
+    type Value = ();
+    type Access = ();
+
+    fn access(_: &'a World, _: Entity) -> Self::Access {}
+
+    fn fetch(_: &mut Self::Access) -> Option<Self::Value> {
+        Some(())
+    }
+}
+
+impl<'a> TypedRelationLookupFetch<'a> for Entity {
+    type Value = Entity;
+    type Access = Option<Entity>;
+
+    fn access(_: &'a World, entity: Entity) -> Self::Access {
+        Some(entity)
+    }
+
+    fn fetch(access: &mut Self::Access) -> Option<Self::Value> {
+        access.take()
+    }
+}
+
+impl<'a, const LOCKING: bool, Fetch> TypedRelationLookupFetch<'a> for Lookup<'a, LOCKING, Fetch>
+where
+    Fetch: TypedLookupFetch<'a, LOCKING>,
+{
+    type Value = Fetch::ValueOne;
+    type Access = Option<Fetch::ValueOne>;
+
+    fn access(world: &'a World, entity: Entity) -> Self::Access {
+        world.lookup_one::<LOCKING, Fetch>(entity)
+    }
+
+    fn fetch(access: &mut Self::Access) -> Option<Self::Value> {
+        access.take()
+    }
+}
+
+pub struct Related<'a, const LOCKING: bool, T, Transform>(PhantomData<fn() -> &'a (T, Transform)>)
+where
+    T: Component,
+    Transform: TypedRelationLookupTransform<'a, Input = Entity>;
+
+impl<'a, const LOCKING: bool, T, Transform> TypedRelationLookupFetch<'a>
+    for Related<'a, LOCKING, T, Transform>
+where
+    T: Component,
+    Transform: TypedRelationLookupTransform<'a, Input = Entity>,
+{
+    type Value = Transform::Output;
+    type Access = Box<dyn Iterator<Item = Self::Value> + 'a>;
+
+    fn access(world: &'a World, entity: Entity) -> Self::Access {
+        Box::new(
+            world
+                .relations_outgoing::<LOCKING, T>(entity)
+                .flat_map(|(_, _, entity)| Transform::transform(world, entity)),
+        )
+    }
+
+    fn fetch(access: &mut Self::Access) -> Option<Self::Value> {
+        access.next()
+    }
+}
+
+pub struct RelatedPair<'a, const LOCKING: bool, T, Transform>(
+    PhantomData<fn() -> &'a (T, Transform)>,
+)
+where
+    T: Component,
+    Transform: TypedRelationLookupTransform<'a, Input = (Entity, Entity)>;
+
+impl<'a, const LOCKING: bool, T, Transform> TypedRelationLookupFetch<'a>
+    for RelatedPair<'a, LOCKING, T, Transform>
+where
+    T: Component,
+    Transform: TypedRelationLookupTransform<'a, Input = (Entity, Entity)>,
+{
+    type Value = Transform::Output;
+    type Access = Box<dyn Iterator<Item = Self::Value> + 'a>;
+
+    fn access(world: &'a World, entity: Entity) -> Self::Access {
+        Box::new(
+            world
+                .relations_outgoing::<LOCKING, T>(entity)
+                .flat_map(|(from, _, to)| Transform::transform(world, (from, to))),
+        )
+    }
+
+    fn fetch(access: &mut Self::Access) -> Option<Self::Value> {
+        access.next()
+    }
+}
+
+pub struct Traverse<'a, const LOCKING: bool, T, Transform>(PhantomData<fn() -> &'a (T, Transform)>)
+where
+    T: Component,
+    Transform: TypedRelationLookupTransform<'a, Input = Entity>;
+
+impl<'a, const LOCKING: bool, T, Transform> TypedRelationLookupFetch<'a>
+    for Traverse<'a, LOCKING, T, Transform>
+where
+    T: Component,
+    Transform: TypedRelationLookupTransform<'a, Input = Entity>,
+{
+    type Value = Transform::Output;
+    type Access = Box<dyn Iterator<Item = Self::Value> + 'a>;
+
+    fn access(world: &'a World, entity: Entity) -> Self::Access {
+        Box::new(
+            world
+                .traverse_outgoing::<LOCKING, T>([entity])
+                .flat_map(|(_, to)| Transform::transform(world, to)),
+        )
+    }
+
+    fn fetch(access: &mut Self::Access) -> Option<Self::Value> {
+        access.next()
+    }
+}
+
+pub struct TraversePair<'a, const LOCKING: bool, T, Transform>(
+    PhantomData<fn() -> &'a (T, Transform)>,
+)
+where
+    T: Component,
+    Transform: TypedRelationLookupTransform<'a, Input = (Entity, Entity)>;
+
+impl<'a, const LOCKING: bool, T, Transform> TypedRelationLookupFetch<'a>
+    for TraversePair<'a, LOCKING, T, Transform>
+where
+    T: Component,
+    Transform: TypedRelationLookupTransform<'a, Input = (Entity, Entity)>,
+{
+    type Value = Transform::Output;
+    type Access = Box<dyn Iterator<Item = Self::Value> + 'a>;
+
+    fn access(world: &'a World, entity: Entity) -> Self::Access {
+        Box::new(
+            world
+                .traverse_outgoing::<LOCKING, T>([entity])
+                .flat_map(|(from, to)| Transform::transform(world, (from, to))),
+        )
+    }
+
+    fn fetch(access: &mut Self::Access) -> Option<Self::Value> {
+        access.next()
+    }
+}
+
+pub struct Join<'a, A, B>(PhantomData<fn() -> &'a (A, B)>)
+where
+    A: TypedRelationLookupFetch<'a>,
+    B: TypedRelationLookupFetch<'a>;
+
+impl<'a, A, B> TypedRelationLookupFetch<'a> for Join<'a, A, B>
+where
+    A: TypedRelationLookupFetch<'a>,
+    B: TypedRelationLookupFetch<'a>,
+{
+    type Value = (Arc<A::Value>, B::Value);
+    type Access = Box<dyn Iterator<Item = Self::Value> + 'a>;
+
+    fn access(world: &'a World, entity: Entity) -> Self::Access {
+        Box::new(
+            TypedRelationLookupIter::<A>::access(A::access(world, entity)).flat_map(move |a| {
+                let a = Arc::new(a);
+                TypedRelationLookupIter::<B>::access(B::access(world, entity))
+                    .map(move |b| (a.clone(), b))
+            }),
+        )
+    }
+
+    fn fetch(access: &mut Self::Access) -> Option<Self::Value> {
+        access.next()
+    }
+}
+
+impl<'a> TypedRelationLookupTransform<'a> for Entity {
+    type Input = Entity;
+    type Output = Entity;
+
+    fn transform(_: &'a World, input: Self::Input) -> impl Iterator<Item = Self::Output> {
+        std::iter::once(input)
+    }
+}
+
+pub struct Is<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
+    PhantomData<fn() -> &'a Fetch>,
+);
+
+impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> TypedRelationLookupTransform<'a>
+    for Is<'a, LOCKING, Fetch>
+{
+    type Input = Entity;
+    type Output = Entity;
+
+    fn transform(world: &'a World, input: Self::Input) -> impl Iterator<Item = Self::Output> {
+        world
+            .lookup_one::<LOCKING, Fetch>(input)
+            .is_some()
+            .then_some(input)
+            .into_iter()
+    }
+}
+
+pub struct IsNot<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
+    PhantomData<fn() -> &'a Fetch>,
+);
+
+impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> TypedRelationLookupTransform<'a>
+    for IsNot<'a, LOCKING, Fetch>
+{
+    type Input = Entity;
+    type Output = Entity;
+
+    fn transform(world: &'a World, input: Self::Input) -> impl Iterator<Item = Self::Output> {
+        world
+            .lookup_one::<LOCKING, Fetch>(input)
+            .is_none()
+            .then_some(input)
+            .into_iter()
+    }
+}
+
+impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> TypedRelationLookupTransform<'a>
+    for Lookup<'a, LOCKING, Fetch>
+{
+    type Input = Entity;
+    type Output = Fetch::ValueOne;
+
+    fn transform(world: &'a World, input: Self::Input) -> impl Iterator<Item = Self::Output> {
+        world.lookup_one::<LOCKING, Fetch>(input).into_iter()
+    }
+}
+
+pub struct Limit<'a, const COUNT: usize, Transform: TypedRelationLookupTransform<'a>>(
+    PhantomData<fn() -> &'a Transform>,
+);
+
+impl<'a, const COUNT: usize, Transform: TypedRelationLookupTransform<'a>>
+    TypedRelationLookupTransform<'a> for Limit<'a, COUNT, Transform>
+{
+    type Input = Transform::Input;
+    type Output = Transform::Output;
+
+    fn transform(world: &'a World, input: Self::Input) -> impl Iterator<Item = Self::Output> {
+        Transform::transform(world, input).take(COUNT)
+    }
+}
+
+pub type Single<'a, Transform> = Limit<'a, 1, Transform>;
+
+pub struct SelectEntity<const INDEX: usize>;
+
+impl<'a, const INDEX: usize> TypedRelationLookupTransform<'a> for SelectEntity<INDEX> {
+    type Input = (Entity, Entity);
+    type Output = Entity;
+
+    fn transform(_: &'a World, input: Self::Input) -> impl Iterator<Item = Self::Output> {
+        if INDEX == 0 {
+            std::iter::once(input.0)
+        } else {
+            std::iter::once(input.1)
+        }
+    }
+}
+
+pub struct Follow<'a, const LOCKING: bool, Transform, Fetch>(
+    PhantomData<fn() -> &'a (Transform, Fetch)>,
+)
+where
+    Transform: TypedRelationLookupTransform<'a, Input = Entity, Output = Entity>,
+    Fetch: TypedRelationLookupFetch<'a>;
+
+impl<'a, const LOCKING: bool, Transform, Fetch> TypedRelationLookupTransform<'a>
+    for Follow<'a, LOCKING, Transform, Fetch>
+where
+    Transform: TypedRelationLookupTransform<'a, Input = Entity, Output = Entity>,
+    Fetch: TypedRelationLookupFetch<'a>,
+{
+    type Input = Entity;
+    type Output = Fetch::Value;
+
+    fn transform(world: &'a World, input: Self::Input) -> impl Iterator<Item = Self::Output> {
+        Transform::transform(world, input)
+            .flat_map(|entity| world.relation_lookup::<LOCKING, Fetch>(entity))
     }
 }
 
@@ -717,6 +1121,7 @@ macro_rules! impl_typed_lookup_fetch_tuple {
     ($($type:ident),+) => {
         impl<'a, const LOCKING: bool, $($type: TypedLookupFetch<'a, LOCKING>),+> TypedLookupFetch<'a, LOCKING> for ($($type,)+) {
             type Value = ($($type::Value,)+);
+            type ValueOne = ($($type::ValueOne,)+);
             type Access = ($($type::Access,)+);
 
             fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
@@ -727,6 +1132,10 @@ macro_rules! impl_typed_lookup_fetch_tuple {
                 #[allow(non_snake_case)]
                 let ($($type,)+) = access;
                 Some(($($type::fetch($type, entity)?,)+))
+            }
+
+            fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+                Some(($($type::fetch_one(world, entity)?,)+))
             }
 
             fn unique_access(output: &mut HashSet<TypeHash>) {
@@ -754,6 +1163,41 @@ impl_typed_lookup_fetch_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M);
 impl_typed_lookup_fetch_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
 impl_typed_lookup_fetch_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
 impl_typed_lookup_fetch_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
+
+macro_rules! impl_typed_relation_fetch_tuple {
+    ($($type:ident),+) => {
+        impl<'a, $($type: TypedRelationLookupFetch<'a>),+> TypedRelationLookupFetch<'a> for ($($type,)+) {
+            type Value = ($($type::Value,)+);
+            type Access = ($($type::Access,)+);
+
+            fn access(world: &'a World, entity: Entity) -> Self::Access {
+                ($($type::access(world, entity),)+)
+            }
+
+            fn fetch(access: &mut Self::Access) -> Option<Self::Value> {
+                #[allow(non_snake_case)]
+                let ($($type,)+) = access;
+                Some(($($type::fetch($type)?,)+))
+            }
+        }
+    };
+}
+
+impl_typed_relation_fetch_tuple!(A);
+impl_typed_relation_fetch_tuple!(A, B);
+impl_typed_relation_fetch_tuple!(A, B, C);
+impl_typed_relation_fetch_tuple!(A, B, C, D);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F, G);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F, G, H);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F, G, H, I);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F, G, H, I, J);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F, G, H, I, J, K);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F, G, H, I, J, K, L);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M, O);
+impl_typed_relation_fetch_tuple!(A, B, C, D, E, F, G, H, I, J, K, L, M, O, P);
 
 pub struct TypedQueryIter<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>> {
     archetypes: Vec<&'a Archetype>,
@@ -904,6 +1348,30 @@ impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>
             }
         }
         None
+    }
+}
+
+pub struct TypedRelationLookupIter<'a, Fetch: TypedRelationLookupFetch<'a>> {
+    access: Fetch::Access,
+}
+
+impl<'a, Fetch: TypedRelationLookupFetch<'a>> TypedRelationLookupIter<'a, Fetch> {
+    pub fn new(world: &'a World, entity: Entity) -> Self {
+        Self {
+            access: Fetch::access(world, entity),
+        }
+    }
+
+    pub fn access(access: Fetch::Access) -> Self {
+        Self { access }
+    }
+}
+
+impl<'a, Fetch: TypedRelationLookupFetch<'a>> Iterator for TypedRelationLookupIter<'a, Fetch> {
+    type Item = Fetch::Value;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Fetch::fetch(&mut self.access)
     }
 }
 

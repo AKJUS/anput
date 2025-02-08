@@ -1,5 +1,6 @@
 use crate::{
     bundle::{Bundle, BundleColumns},
+    component::Component,
     entity::Entity,
     world::World,
 };
@@ -181,6 +182,99 @@ impl<T: Bundle + Send + Sync + 'static> RemoveCommand<T> {
 impl<T: Bundle + Send + Sync + 'static> Command for RemoveCommand<T> {
     fn execute(self, world: &mut World) {
         world.remove::<T>(self.entity).unwrap();
+    }
+}
+
+pub struct RelateCommand<const LOCKING: bool, T: Component> {
+    payload: T,
+    from: Entity,
+    to: Entity,
+}
+
+impl<const LOCKING: bool, T: Component> RelateCommand<LOCKING, T> {
+    pub fn new(payload: T, from: Entity, to: Entity) -> Self {
+        Self { payload, from, to }
+    }
+}
+
+impl<const LOCKING: bool, T: Component> Command for RelateCommand<LOCKING, T> {
+    fn execute(self, world: &mut World) {
+        world
+            .relate::<LOCKING, T>(self.payload, self.from, self.to)
+            .unwrap();
+    }
+}
+
+pub struct RelateOneCommand<const LOCKING: bool, T: Component> {
+    payload: T,
+    from: Entity,
+    to: Entity,
+}
+
+impl<const LOCKING: bool, T: Component> RelateOneCommand<LOCKING, T> {
+    pub fn new(payload: T, from: Entity, to: Entity) -> Self {
+        Self { payload, from, to }
+    }
+}
+
+impl<const LOCKING: bool, T: Component> Command for RelateOneCommand<LOCKING, T> {
+    fn execute(self, world: &mut World) {
+        world
+            .relate_one::<LOCKING, T>(self.payload, self.from, self.to)
+            .unwrap();
+    }
+}
+
+pub struct RelatePairCommand<const LOCKING: bool, I: Component, O: Component> {
+    payload_incoming: I,
+    payload_outgoing: O,
+    from: Entity,
+    to: Entity,
+}
+
+impl<const LOCKING: bool, I: Component, O: Component> RelatePairCommand<LOCKING, I, O> {
+    pub fn new(payload_incoming: I, payload_outgoing: O, from: Entity, to: Entity) -> Self {
+        Self {
+            payload_incoming,
+            payload_outgoing,
+            from,
+            to,
+        }
+    }
+}
+
+impl<const LOCKING: bool, I: Component, O: Component> Command for RelatePairCommand<LOCKING, I, O> {
+    fn execute(self, world: &mut World) {
+        world
+            .relate_pair::<LOCKING, I, O>(
+                self.payload_incoming,
+                self.payload_outgoing,
+                self.from,
+                self.to,
+            )
+            .unwrap();
+    }
+}
+
+pub struct UnrelateCommand<const LOCKING: bool, T: Component> {
+    from: Entity,
+    to: Entity,
+    _phantom: PhantomData<fn() -> T>,
+}
+
+impl<const LOCKING: bool, T: Component> UnrelateCommand<LOCKING, T> {
+    pub fn new(from: Entity, to: Entity) -> Self {
+        Self {
+            from,
+            to,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<const LOCKING: bool, T: Component> Command for UnrelateCommand<LOCKING, T> {
+    fn execute(self, world: &mut World) {
+        world.unrelate::<LOCKING, T>(self.from, self.to).unwrap();
     }
 }
 

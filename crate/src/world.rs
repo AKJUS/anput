@@ -10,6 +10,7 @@ use crate::{
     query::{
         DynamicLookupAccess, DynamicLookupIter, DynamicQueryFilter, DynamicQueryIter,
         TypedLookupAccess, TypedLookupFetch, TypedLookupIter, TypedQueryFetch, TypedQueryIter,
+        TypedRelationLookupFetch, TypedRelationLookupIter,
     },
 };
 use intuicio_core::{registry::Registry, types::struct_type::NativeStructBuilder};
@@ -615,36 +616,36 @@ impl<T: Component> Relation<T> {
 pub struct RelationsTraverseIter<'a, const LOCKING: bool, T: Component> {
     world: &'a World,
     incoming: bool,
-    stack: VecDeque<Entity>,
+    stack: VecDeque<(Option<Entity>, Entity)>,
     visited: HashSet<Entity>,
     _phantom: PhantomData<fn() -> T>,
 }
 
 impl<const LOCKING: bool, T: Component> Iterator for RelationsTraverseIter<'_, LOCKING, T> {
-    type Item = Entity;
+    type Item = (Entity, Entity);
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(entity) = self.stack.pop_front() {
-            if self.visited.contains(&entity) {
+        while let Some((from, to)) = self.stack.pop_front() {
+            if self.visited.contains(&to) {
                 continue;
             }
-            self.visited.insert(entity);
+            self.visited.insert(to);
             if self.incoming {
-                for (entity, _, _) in self.world.relations_incomming::<LOCKING, T>(entity) {
+                for (from, _, to) in self.world.relations_incomming::<LOCKING, T>(to) {
                     if self.stack.len() == self.stack.capacity() {
                         self.stack.reserve_exact(self.stack.capacity());
                     }
-                    self.stack.push_back(entity);
+                    self.stack.push_back((Some(from), to));
                 }
             } else {
-                for (_, _, entity) in self.world.relations_outgoing::<LOCKING, T>(entity) {
+                for (from, _, to) in self.world.relations_outgoing::<LOCKING, T>(to) {
                     if self.stack.len() == self.stack.capacity() {
                         self.stack.reserve_exact(self.stack.capacity());
                     }
-                    self.stack.push_back(entity);
+                    self.stack.push_back((Some(from), to));
                 }
             }
-            return Some(entity);
+            return Some((from.unwrap_or_default(), to));
         }
         None
     }
@@ -1398,6 +1399,13 @@ impl World {
         TypedLookupAccess::new(self)
     }
 
+    pub fn lookup_one<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
+        &'a self,
+        entity: Entity,
+    ) -> Option<Fetch::ValueOne> {
+        Fetch::fetch_one(self, entity)
+    }
+
     pub fn dynamic_lookup<'a, const LOCKING: bool>(
         &'a self,
         filter: &DynamicQueryFilter,
@@ -1444,6 +1452,18 @@ impl World {
         self.insert(from, (Relation::<T>::new(payload, to),))
     }
 
+    pub fn relate_pair<const LOCKING: bool, I: Component, O: Component>(
+        &mut self,
+        payload_incoming: I,
+        payload_outgoing: O,
+        from: Entity,
+        to: Entity,
+    ) -> Result<(), WorldError> {
+        self.relate::<LOCKING, _>(payload_outgoing, from, to)?;
+        self.relate::<LOCKING, _>(payload_incoming, to, from)?;
+        Ok(())
+    }
+
     pub fn unrelate<const LOCKING: bool, T: Component>(
         &mut self,
         from: Entity,
@@ -1481,6 +1501,26 @@ impl World {
             })
             .collect::<Vec<_>>();
         for entity in to_remove {
+            self.remove::<(Relation<T>,)>(entity)?;
+        }
+        Ok(())
+    }
+
+    pub fn unrelate_all<const LOCKING: bool, T: Component>(
+        &mut self,
+        entity: Entity,
+    ) -> Result<(), WorldError> {
+        let remove = if let Ok(mut relation) = self.get::<LOCKING, Relation<T>>(entity, true) {
+            if let Some(relation) = relation.write() {
+                relation.clear();
+                relation.is_empty()
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if remove {
             self.remove::<(Relation<T>,)>(entity)?;
         }
         Ok(())
@@ -1578,7 +1618,7 @@ impl World {
         RelationsTraverseIter {
             world: self,
             incoming: false,
-            stack: entities.into_iter().collect(),
+            stack: entities.into_iter().map(|entity| (None, entity)).collect(),
             visited: Default::default(),
             _phantom: Default::default(),
         }
@@ -1591,10 +1631,17 @@ impl World {
         RelationsTraverseIter {
             world: self,
             incoming: true,
-            stack: entities.into_iter().collect(),
+            stack: entities.into_iter().map(|entity| (None, entity)).collect(),
             visited: Default::default(),
             _phantom: Default::default(),
         }
+    }
+
+    pub fn relation_lookup<'a, const LOCKING: bool, Fetch: TypedRelationLookupFetch<'a>>(
+        &'a self,
+        entity: Entity,
+    ) -> TypedRelationLookupIter<'a, Fetch> {
+        TypedRelationLookupIter::new(self, entity)
     }
 }
 
@@ -1941,6 +1988,7 @@ mod tests {
     #[test]
     fn test_world_relations() {
         struct Parent;
+        struct Child;
         struct Root;
 
         let mut world = World::default();
@@ -1948,9 +1996,15 @@ mod tests {
         let b = world.spawn((1u8, false)).unwrap();
         let c = world.spawn((2u8, false)).unwrap();
         let d = world.spawn((3u8, false)).unwrap();
-        world.relate::<true, _>(Parent, b, a).unwrap();
-        world.relate::<true, _>(Parent, c, a).unwrap();
-        world.relate::<true, _>(Parent, d, c).unwrap();
+        world
+            .relate_pair::<true, _, _>(Parent, Child, a, b)
+            .unwrap();
+        world
+            .relate_pair::<true, _, _>(Parent, Child, a, c)
+            .unwrap();
+        world
+            .relate_pair::<true, _, _>(Parent, Child, c, d)
+            .unwrap();
 
         assert_eq!(
             world
@@ -2012,9 +2066,9 @@ mod tests {
 
         assert_eq!(
             world
-                .traverse_incoming::<true, Parent>([a])
+                .traverse_outgoing::<true, Child>([a])
                 .collect::<Vec<_>>(),
-            vec![a, b, c, d]
+            vec![(Entity::INVALID, a), (a, b), (a, c), (c, d)]
         );
 
         for (entity, _) in world.query::<true, (Entity, Include<Root>)>() {
