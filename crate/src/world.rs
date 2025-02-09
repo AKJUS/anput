@@ -1485,6 +1485,16 @@ impl World {
         Ok(())
     }
 
+    pub fn unrelate_pair<const LOCKING: bool, I: Component, O: Component>(
+        &mut self,
+        from: Entity,
+        to: Entity,
+    ) -> Result<(), WorldError> {
+        self.unrelate::<LOCKING, O>(from, to)?;
+        self.unrelate::<LOCKING, I>(to, from)?;
+        Ok(())
+    }
+
     pub fn unrelate_any<const LOCKING: bool, T: Component>(
         &mut self,
         entity: Entity,

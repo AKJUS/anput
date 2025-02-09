@@ -3,7 +3,7 @@ use crate::{
     bundle::{Bundle, BundleColumns},
     component::{Component, ComponentRef, ComponentRefMut},
     entity::Entity,
-    query::TypedLookupFetch,
+    query::{TypedLookupFetch, TypedRelationLookupFetch},
     world::{Relation, World, WorldError},
 };
 use intuicio_core::{context::Context, function::FunctionHandle, registry::Registry};
@@ -92,13 +92,19 @@ impl Actor {
         world.component_mut::<LOCKING, T>(self.0)
     }
 
+    pub fn access<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
+        self,
+        world: &'a World,
+    ) -> Option<Fetch::ValueOne> {
+        world.lookup_one::<LOCKING, Fetch>(self.0)
+    }
+
     pub fn add_child<const LOCKING: bool>(
         self,
         world: &mut World,
         other: Self,
     ) -> Result<(), WorldError> {
-        world.relate::<LOCKING, _>(ActorChild, self.0, other.0)?;
-        world.relate::<LOCKING, _>(ActorParent, other.0, self.0)?;
+        world.relate_pair::<LOCKING, _, _>(ActorParent, ActorChild, self.0, other.0)?;
         Ok(())
     }
 
@@ -107,8 +113,7 @@ impl Actor {
         world: &mut World,
         other: Self,
     ) -> Result<(), WorldError> {
-        world.unrelate::<LOCKING, ActorChild>(self.0, other.0)?;
-        world.unrelate::<LOCKING, ActorParent>(other.0, self.0)?;
+        world.unrelate_pair::<LOCKING, ActorParent, ActorChild>(self.0, other.0)?;
         Ok(())
     }
 
@@ -122,6 +127,13 @@ impl Actor {
         world
             .relations_outgoing::<LOCKING, ActorParent>(self.0)
             .map(|(_, _, entity)| Self(entity))
+    }
+
+    pub fn relation_lookup<'a, const LOCKING: bool, Fetch: TypedRelationLookupFetch<'a>>(
+        &self,
+        world: &'a World,
+    ) -> impl Iterator<Item = Fetch::Value> {
+        world.relation_lookup::<LOCKING, Fetch>(self.0)
     }
 
     pub fn register_message_listener<const LOCKING: bool>(
