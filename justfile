@@ -8,10 +8,10 @@ build:
   cargo build --all --all-features
 
 test:
-  cargo test --all --all-features
+  cargo test --all --all-features -- --nocapture
 
 miri:
-  cargo +nightly miri test --manifest-path ./crate/Cargo.toml
+  cargo +nightly miri test --manifest-path ./crate/Cargo.toml -- --nocapture
 
 clippy:
   cargo clippy --all --all-features
@@ -39,6 +39,8 @@ list-outdated:
 
 update:
   cargo update --manifest-path ./crate/Cargo.toml --aggressive
+  cargo update --manifest-path ./plugins/spatial/Cargo.toml --aggressive
 
 publish:
   cargo publish --no-verify --manifest-path ./crate/Cargo.toml
+  cargo publish --no-verify --manifest-path ./plugins/spatial/Cargo.toml

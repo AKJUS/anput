@@ -11,6 +11,15 @@ use std::{
 
 type Job = Box<dyn FnOnce(JobContext) + Send + Sync>;
 
+fn traced_spin_loop() {
+    #[cfg(feature = "deadlock-trace")]
+    println!(
+        "* DEADLOCK BACKTRACE: {}",
+        std::backtrace::Backtrace::force_capture()
+    );
+    std::hint::spin_loop();
+}
+
 pub struct JobHandle<T: Send + 'static> {
     result: Arc<Mutex<Option<Option<T>>>>,
 }
@@ -50,7 +59,7 @@ impl<T: Send + 'static> JobHandle<T> {
             if let Some(result) = self.try_take() {
                 return result;
             } else {
-                std::hint::spin_loop();
+                traced_spin_loop();
             }
         }
     }
@@ -182,7 +191,7 @@ impl<T: Send + 'static> AnyJobHandle<T> {
             if let Some(result) = self.try_take() {
                 return result;
             } else {
-                std::hint::spin_loop();
+                traced_spin_loop();
             }
         }
     }

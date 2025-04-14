@@ -1,0 +1,18 @@
+[package]
+name = "anput-spatial"
+version = "0.10.2"
+edition = "2021"
+authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
+description = "Spatial queries plugin for Anput ECS"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/PsichiX/anput"
+repository = "https://github.com/PsichiX/anput"
+documentation = "https://docs.rs/anput-spatial"
+readme = "../README.md"
+
+[dependencies]
+anput = { version = "0.10", path = "../../crate" }
+rstar = "0.12"
+
+[dev-dependencies]
+vek = "0.17"
