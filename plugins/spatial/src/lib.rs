@@ -1,6 +1,6 @@
 use anput::{
     entity::Entity,
-    query::TypedLookupFetch,
+    query::{DynamicQueryFilter, DynamicQueryItem, TypedLookupFetch},
     scheduler::GraphSchedulerQuickPlugin,
     systems::SystemContext,
     universe::{Plugin, Res},
@@ -88,12 +88,30 @@ impl<Extractor: SpatialExtractor> SpatialPartitioning<Extractor> {
         world.lookup::<LOCKING, Fetch>(self.nearest_entities(point))
     }
 
+    pub fn nearest_dynamic_query<'a, const LOCKING: bool>(
+        &'a self,
+        world: &'a World,
+        point: &<<Extractor::SpatialObject as RTreeObject>::Envelope as Envelope>::Point,
+        filter: &DynamicQueryFilter,
+    ) -> impl Iterator<Item = DynamicQueryItem<'a>> {
+        world.dynamic_lookup::<LOCKING>(filter, self.nearest_entities(point))
+    }
+
     pub fn locate_contained_query<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
         &'a self,
         world: &'a World,
         envelope: &<Extractor::SpatialObject as RTreeObject>::Envelope,
     ) -> impl Iterator<Item = Fetch::Value> {
         world.lookup::<LOCKING, Fetch>(self.locate_contained_entities(envelope))
+    }
+
+    pub fn locate_contained_dynamic_query<'a, const LOCKING: bool>(
+        &'a self,
+        world: &'a World,
+        envelope: &<Extractor::SpatialObject as RTreeObject>::Envelope,
+        filter: &DynamicQueryFilter,
+    ) -> impl Iterator<Item = DynamicQueryItem<'a>> {
+        world.dynamic_lookup::<LOCKING>(filter, self.locate_contained_entities(envelope))
     }
 
     pub fn locate_intersecting_query<
@@ -106,6 +124,15 @@ impl<Extractor: SpatialExtractor> SpatialPartitioning<Extractor> {
         envelope: &<Extractor::SpatialObject as RTreeObject>::Envelope,
     ) -> impl Iterator<Item = Fetch::Value> {
         world.lookup::<LOCKING, Fetch>(self.locate_intersecting_entities(envelope))
+    }
+
+    pub fn locate_intersecting_dynamic_query<'a, const LOCKING: bool>(
+        &'a self,
+        world: &'a World,
+        envelope: &<Extractor::SpatialObject as RTreeObject>::Envelope,
+        filter: &DynamicQueryFilter,
+    ) -> impl Iterator<Item = DynamicQueryItem<'a>> {
+        world.dynamic_lookup::<LOCKING>(filter, self.locate_intersecting_entities(envelope))
     }
 }
 
