@@ -43,4 +43,5 @@ update:
 
 publish:
   cargo publish --no-verify --manifest-path ./crate/Cargo.toml
+  sleep 1
   cargo publish --no-verify --manifest-path ./plugins/spatial/Cargo.toml
