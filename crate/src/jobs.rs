@@ -2,10 +2,10 @@ use std::{
     collections::VecDeque,
     error::Error,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
     },
-    thread::{available_parallelism, spawn, JoinHandle},
+    thread::{JoinHandle, available_parallelism, spawn},
     time::Duration,
 };
 
@@ -263,29 +263,31 @@ impl Worker {
         let terminate = Arc::new(AtomicBool::default());
         let terminate2 = terminate.clone();
         let name2 = name.clone();
-        let thread = spawn(move || loop {
-            if terminate2.load(Ordering::Relaxed) {
-                return;
-            }
-            while let Some((job, group, groups)) = queue.dequeue(name2.as_deref()) {
-                job(JobContext {
-                    work_group_index: group,
-                    work_groups_count: groups,
-                });
+        let thread = spawn(move || {
+            loop {
                 if terminate2.load(Ordering::Relaxed) {
                     return;
                 }
-            }
-            let (lock, cvar) = &*notify;
-            let Ok(mut ready) = lock.lock() else {
-                return;
-            };
-            *ready = false;
-            while !*ready {
-                let Ok((new, _)) = cvar.wait_timeout(ready, Duration::from_millis(10)) else {
+                while let Some((job, group, groups)) = queue.dequeue(name2.as_deref()) {
+                    job(JobContext {
+                        work_group_index: group,
+                        work_groups_count: groups,
+                    });
+                    if terminate2.load(Ordering::Relaxed) {
+                        return;
+                    }
+                }
+                let (lock, cvar) = &*notify;
+                let Ok(mut ready) = lock.lock() else {
                     return;
                 };
-                ready = new;
+                *ready = false;
+                while !*ready {
+                    let Ok((new, _)) = cvar.wait_timeout(ready, Duration::from_millis(10)) else {
+                        return;
+                    };
+                    ready = new;
+                }
             }
         });
         Worker {

@@ -1,6 +1,6 @@
 use crate::{
     components::{
-        drawable::{screen_rect, Drawable},
+        drawable::{Drawable, screen_rect},
         sprite::Sprite,
     },
     resources::{
@@ -17,7 +17,7 @@ use crossterm::{
 };
 use std::{
     error::Error,
-    io::{stdout, Write},
+    io::{Write, stdout},
 };
 
 #[derive(Debug, Default)]

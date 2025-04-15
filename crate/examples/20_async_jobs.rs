@@ -1,5 +1,5 @@
 use anput::{jobs::Jobs, prelude::*, view::WorldView};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::{collections::HashSet, error::Error};
 
 struct Next;

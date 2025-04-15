@@ -6,7 +6,7 @@ use anput::{
     universe::{Plugin, Res},
     world::World,
 };
-use rstar::{primitives::GeomWithData, Envelope, PointDistance, RTree, RTreeObject};
+use rstar::{Envelope, PointDistance, RTree, RTreeObject, primitives::GeomWithData};
 use std::{error::Error, marker::PhantomData};
 
 pub mod third_party {

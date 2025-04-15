@@ -177,7 +177,7 @@ mod tests {
         // Delete:
         world
             .query::<true, (Entity, &usize)>()
-            .filter(|(_, &a)| a > 0)
+            .filter(|(_, a)| **a > 0)
             .map(|(entity, _)| entity)
             .to_despawn_command()
             .execute(&mut world);

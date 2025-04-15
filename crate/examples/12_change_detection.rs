@@ -1,5 +1,5 @@
 use anput::prelude::*;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

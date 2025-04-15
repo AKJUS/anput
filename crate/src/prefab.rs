@@ -9,9 +9,9 @@ use crate::{
 use intuicio_core::{registry::Registry, types::TypeQuery};
 use intuicio_data::type_hash::TypeHash;
 use intuicio_framework_serde::{
-    from_intermediate, to_intermediate, Intermediate, IntermediateResult, SerializationRegistry,
+    Intermediate, IntermediateResult, SerializationRegistry, from_intermediate, to_intermediate,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::HashMap, error::Error};
 
 #[derive(Debug)]
@@ -194,10 +194,12 @@ impl Prefab {
                     id,
                     (
                         archetype,
-                        vec![archetype
-                            .entities()
-                            .index_of(entity)
-                            .ok_or(WorldError::EntityDoesNotExists { entity })?],
+                        vec![
+                            archetype
+                                .entities()
+                                .index_of(entity)
+                                .ok_or(WorldError::EntityDoesNotExists { entity })?,
+                        ],
                     ),
                 );
             }

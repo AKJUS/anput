@@ -4,14 +4,14 @@ use crate::{
     entity::{Entity, EntityDenseMap},
 };
 use intuicio_core::types::Type;
-use intuicio_data::{type_hash::TypeHash, Finalize};
+use intuicio_data::{Finalize, type_hash::TypeHash};
 use std::{
-    alloc::{alloc, dealloc, Layout},
+    alloc::{Layout, alloc, dealloc},
     error::Error,
     marker::PhantomData,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -249,10 +249,11 @@ impl<'a, const LOCKING: bool, T: Component> ArchetypeColumnAccess<'a, LOCKING, T
     /// # Safety
     pub unsafe fn data(&self, index: usize) -> Result<*mut u8, ArchetypeError> {
         if index < self.size {
-            Ok(self
-                .column
-                .memory
-                .add(index * self.column.info.layout.size()))
+            Ok(unsafe {
+                self.column
+                    .memory
+                    .add(index * self.column.info.layout.size())
+            })
         } else {
             Err(ArchetypeError::IndexNotFound { index })
         }
@@ -377,10 +378,11 @@ impl<'a, const LOCKING: bool> ArchetypeDynamicColumnAccess<'a, LOCKING> {
     /// # Safety
     pub unsafe fn data(&self, index: usize) -> Result<*mut u8, ArchetypeError> {
         if index < self.size {
-            Ok(self
-                .column
-                .memory
-                .add(index * self.column.info.layout.size()))
+            Ok(unsafe {
+                self.column
+                    .memory
+                    .add(index * self.column.info.layout.size())
+            })
         } else {
             Err(ArchetypeError::IndexNotFound { index })
         }
@@ -506,9 +508,11 @@ impl<'a, const LOCKING: bool, T: Component> ArchetypeEntityColumnAccess<'a, LOCK
     /// # Safety
     #[inline]
     pub unsafe fn data(&self) -> *mut u8 {
-        self.column
-            .memory
-            .add(self.index * self.column.info.layout.size())
+        unsafe {
+            self.column
+                .memory
+                .add(self.index * self.column.info.layout.size())
+        }
     }
 
     pub fn read(&self) -> Option<&T> {
@@ -615,9 +619,11 @@ impl<'a, const LOCKING: bool> ArchetypeDynamicEntityColumnAccess<'a, LOCKING> {
     /// # Safety
     #[inline]
     pub unsafe fn data(&self) -> *mut u8 {
-        self.column
-            .memory
-            .add(self.index * self.column.info.layout.size())
+        unsafe {
+            self.column
+                .memory
+                .add(self.index * self.column.info.layout.size())
+        }
     }
 
     pub fn read<T: Component>(&self) -> Option<&T> {
@@ -694,7 +700,7 @@ impl<'a> ArchetypeEntityRowAccess<'a> {
     pub unsafe fn data(&self, type_hash: TypeHash) -> Result<*mut u8, ArchetypeError> {
         for column in self.columns.as_ref() {
             if column.info.type_hash == type_hash {
-                return Ok(column.memory.add(self.index * column.info.layout.size()));
+                return Ok(unsafe { column.memory.add(self.index * column.info.layout.size()) });
             }
         }
         Err(ArchetypeError::ColumnNotFound { type_hash })
@@ -745,11 +751,13 @@ impl<'a> ArchetypeEntityRowAccess<'a> {
         let type_hash = TypeHash::of::<T>();
         for column in self.columns.as_ref() {
             if column.info.type_hash == type_hash {
-                column
-                    .memory
-                    .add(self.index * column.info.layout.size())
-                    .cast::<T>()
-                    .write(value);
+                unsafe {
+                    column
+                        .memory
+                        .add(self.index * column.info.layout.size())
+                        .cast::<T>()
+                        .write(value)
+                };
                 return Ok(());
             }
         }
@@ -761,7 +769,9 @@ impl<'a> ArchetypeEntityRowAccess<'a> {
         let type_hash = type_.type_hash();
         for column in self.columns.as_ref() {
             if column.info.type_hash == type_hash {
-                type_.initialize(column.memory.add(self.index * column.info.layout.size()) as _);
+                unsafe {
+                    type_.initialize(column.memory.add(self.index * column.info.layout.size()) as _)
+                };
                 return Ok(());
             }
         }
@@ -1090,9 +1100,9 @@ impl Column {
     }
 
     unsafe fn reallocate(&mut self, size: usize, capacity: usize) {
-        let (memory, layout) = Self::allocate_memory(self.info.layout, capacity);
-        self.memory.copy_to(memory, self.info.layout.size() * size);
-        dealloc(self.memory, self.layout);
+        let (memory, layout) = unsafe { Self::allocate_memory(self.info.layout, capacity) };
+        unsafe { self.memory.copy_to(memory, self.info.layout.size() * size) };
+        unsafe { dealloc(self.memory, self.layout) };
         self.memory = memory;
         self.layout = layout;
     }
@@ -1100,11 +1110,16 @@ impl Column {
     unsafe fn allocate_memory(mut item_layout: Layout, capacity: usize) -> (*mut u8, Layout) {
         item_layout = item_layout.pad_to_align();
         let layout = if item_layout.size() == 0 {
-            Layout::from_size_align_unchecked(1, 1)
+            unsafe { Layout::from_size_align_unchecked(1, 1) }
         } else {
-            Layout::from_size_align_unchecked(item_layout.size() * capacity, item_layout.align())
+            unsafe {
+                Layout::from_size_align_unchecked(
+                    item_layout.size() * capacity,
+                    item_layout.align(),
+                )
+            }
         };
-        let memory = alloc(layout);
+        let memory = unsafe { alloc(layout) };
         (memory, layout)
     }
 
@@ -1113,7 +1128,7 @@ impl Column {
         unique: bool,
         size: usize,
     ) -> Result<ArchetypeColumnAccess<LOCKING, T>, ArchetypeError> {
-        ArchetypeColumnAccess::new(self, unique, size)
+        unsafe { ArchetypeColumnAccess::new(self, unique, size) }
     }
 
     fn dynamic_column_access<const LOCKING: bool>(
@@ -1129,7 +1144,7 @@ impl Column {
         unique: bool,
         index: usize,
     ) -> Result<ArchetypeEntityColumnAccess<LOCKING, T>, ArchetypeError> {
-        ArchetypeEntityColumnAccess::new(self, unique, index)
+        unsafe { ArchetypeEntityColumnAccess::new(self, unique, index) }
     }
 
     fn dynamic_entity_access<const LOCKING: bool>(

@@ -1,5 +1,5 @@
 use anput::{prelude::*, view::WorldView};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::{error::Error, thread::spawn};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]

@@ -556,10 +556,9 @@ impl<T: Component> Relation<T> {
                     None
                 }
             }
-            RelationConnections::More(vec) => {
-                vec.iter()
-                    .find_map(|(p, e)| if *e == entity { Some(p) } else { None })
-            }
+            RelationConnections::More(vec) => vec
+                .iter()
+                .find_map(|(p, e)| if *e == entity { Some(p) } else { None }),
         }
     }
 
@@ -574,10 +573,9 @@ impl<T: Component> Relation<T> {
                     None
                 }
             }
-            RelationConnections::More(vec) => {
-                vec.iter_mut()
-                    .find_map(|(p, e)| if *e == entity { Some(p) } else { None })
-            }
+            RelationConnections::More(vec) => vec
+                .iter_mut()
+                .find_map(|(p, e)| if *e == entity { Some(p) } else { None }),
         }
     }
 
@@ -987,7 +985,7 @@ impl World {
     pub unsafe fn spawn_uninitialized<T: BundleColumns>(
         &mut self,
     ) -> Result<(Entity, ArchetypeEntityRowAccess), WorldError> {
-        self.spawn_uninitialized_raw(T::columns_static())
+        unsafe { self.spawn_uninitialized_raw(T::columns_static()) }
     }
 
     /// # Safety
@@ -1071,7 +1069,7 @@ impl World {
     pub unsafe fn despawn_uninitialized(&mut self, entity: Entity) -> Result<(), WorldError> {
         let id = self.entities.release(entity)?;
         let archetype = self.archetypes.get_mut(id).unwrap();
-        match archetype.remove_uninitialized(entity) {
+        match unsafe { archetype.remove_uninitialized(entity) } {
             Ok(_) => {
                 self.removed
                     .table
@@ -1503,11 +1501,7 @@ impl World {
             .query::<LOCKING, (Entity, &mut Relation<T>)>()
             .filter_map(|(e, relation)| {
                 relation.remove(entity);
-                if relation.is_empty() {
-                    Some(e)
-                } else {
-                    None
-                }
+                if relation.is_empty() { Some(e) } else { None }
             })
             .collect::<Vec<_>>();
         for entity in to_remove {

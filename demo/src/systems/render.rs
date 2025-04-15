@@ -1,6 +1,6 @@
 use crate::{
     components::{
-        drawable::{screen_rect, DrawOrder, Drawable},
+        drawable::{DrawOrder, Drawable, screen_rect},
         position::Position,
         sprite::Sprite,
         text::Text,

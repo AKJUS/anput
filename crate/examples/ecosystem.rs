@@ -1,8 +1,8 @@
 use anput::prelude::*;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::{
     error::Error,
-    io::{stdout, Write},
+    io::{Write, stdout},
     thread::sleep,
     time::Duration,
 };
@@ -20,11 +20,7 @@ struct Bunny;
 
 impl Kind for Bunny {
     fn symbol(repro: &Reproduction) -> char {
-        if repro.0 > 0 {
-            'b'
-        } else {
-            'B'
-        }
+        if repro.0 > 0 { 'b' } else { 'B' }
     }
 }
 
@@ -33,11 +29,7 @@ struct Fox;
 
 impl Kind for Fox {
     fn symbol(repro: &Reproduction) -> char {
-        if repro.0 > 0 {
-            'f'
-        } else {
-            'F'
-        }
+        if repro.0 > 0 { 'f' } else { 'F' }
     }
 }
 

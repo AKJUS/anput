@@ -1,6 +1,6 @@
 use anput::{multiverse::Multiverse, prelude::*};
 use intuicio_derive::IntuicioStruct;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 

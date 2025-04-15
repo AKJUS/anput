@@ -160,11 +160,13 @@ mod tests {
 
         let mut world = World::default();
         let entity = world.spawn((false,)).unwrap();
-        assert!(!*world
-            .get::<true, bool>(entity, false)
-            .unwrap()
-            .read()
-            .unwrap());
+        assert!(
+            !*world
+                .get::<true, bool>(entity, false)
+                .unwrap()
+                .read()
+                .unwrap()
+        );
         assert_eq!(*phase.read().unwrap(), Phase::None);
 
         observer.process(&mut world);

@@ -1,4 +1,4 @@
-use intuicio_core::{registry::Registry, IntuicioStruct};
+use intuicio_core::{IntuicioStruct, registry::Registry};
 use intuicio_derive::*;
 use serde::{Deserialize, Serialize};
 

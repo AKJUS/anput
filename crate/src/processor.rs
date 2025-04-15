@@ -336,13 +336,13 @@ struct WorldProcessorWorldColumnFormat<'a> {
 
 impl WorldProcessorWorldColumnFormat<'_> {
     pub fn format(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let component = unsafe {
+            self.processor
+                .format_component_raw(self.type_hash, self.data)
+        };
         fmt.debug_struct("Column")
             .field("type_hash", &self.type_hash)
-            .field("component", unsafe {
-                &self
-                    .processor
-                    .format_component_raw(self.type_hash, self.data)
-            })
+            .field("component", &component)
             .finish()
     }
 }

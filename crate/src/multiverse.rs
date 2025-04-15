@@ -160,7 +160,7 @@ impl<const LOCKING: bool, T: Component> ArchetypeMultityColumnAccess<'_, LOCKING
     /// # Safety
     #[inline]
     pub unsafe fn data(&self) -> *mut u8 {
-        self.entity.data()
+        unsafe { self.entity.data() }
     }
 
     pub fn read(&self) -> Option<&T> {
@@ -191,7 +191,7 @@ impl<const LOCKING: bool> ArchetypeDynamicMultityColumnAccess<'_, LOCKING> {
     /// # Safety
     #[inline]
     pub unsafe fn data(&self) -> *mut u8 {
-        self.entity.data()
+        unsafe { self.entity.data() }
     }
 
     pub fn read<T: Component>(&self) -> Option<&T> {

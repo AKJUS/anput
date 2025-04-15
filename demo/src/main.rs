@@ -7,11 +7,11 @@ pub mod utils;
 use anput::prelude::*;
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
-    event::{poll, read, DisableMouseCapture, EnableMouseCapture},
+    event::{DisableMouseCapture, EnableMouseCapture, poll, read},
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
+        Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+        enable_raw_mode,
     },
 };
 use game_states::main_menu::MainMenuState;
