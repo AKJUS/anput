@@ -11,7 +11,9 @@ test:
   cargo test --all --all-features -- --nocapture
 
 miri:
-  cargo +nightly miri test --manifest-path ./crate/Cargo.toml -- --nocapture
+  cargo +nightly miri test --manifest-path ./crates/jobs/Cargo.toml -- --nocapture
+  cargo +nightly miri test --manifest-path ./crates/_/Cargo.toml -- --nocapture
+  cargo +nightly miri test --manifest-path ./crates/spatial/Cargo.toml -- --nocapture
 
 clippy:
   cargo clippy --all --all-features
@@ -38,10 +40,13 @@ list-outdated:
   cargo outdated -R -w
 
 update:
-  cargo update --manifest-path ./crate/Cargo.toml --aggressive
-  cargo update --manifest-path ./plugins/spatial/Cargo.toml --aggressive
+  cargo update --manifest-path ./crates/jobs/Cargo.toml --aggressive
+  cargo update --manifest-path ./crates/_/Cargo.toml --aggressive
+  cargo update --manifest-path ./crates/spatial/Cargo.toml --aggressive
 
 publish:
-  cargo publish --no-verify --manifest-path ./crate/Cargo.toml
+  cargo publish --no-verify --manifest-path ./crates/jobs/Cargo.toml
   sleep 1
-  cargo publish --no-verify --manifest-path ./plugins/spatial/Cargo.toml
+  cargo publish --no-verify --manifest-path ./crates/_/Cargo.toml
+  sleep 1
+  cargo publish --no-verify --manifest-path ./crates/spatial/Cargo.toml

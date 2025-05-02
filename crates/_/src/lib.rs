@@ -5,7 +5,6 @@ pub mod commands;
 pub mod component;
 pub mod database;
 pub mod entity;
-pub mod jobs;
 pub mod multiverse;
 pub mod observer;
 pub mod prefab;
@@ -17,6 +16,8 @@ pub mod systems;
 pub mod universe;
 pub mod view;
 pub mod world;
+
+pub use anput_jobs as jobs;
 
 pub mod prelude {
     pub use crate::{
