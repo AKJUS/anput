@@ -94,7 +94,7 @@ impl Prefab {
         serialization: &mut SerializationRegistry,
     ) {
         serialization.register::<Relation<T>>(
-            |data| {
+            |data, _, _| {
                 Ok(Intermediate::Seq(
                     data.iter()
                         .map(|(item, entity)| {
@@ -106,7 +106,7 @@ impl Prefab {
                         .collect::<IntermediateResult<Vec<_>>>()?,
                 ))
             },
-            |data, value| {
+            |data, value, _, _, _| {
                 let Intermediate::Seq(items) = value else {
                     return Err("Expected intermediate sequence".into());
                 };
@@ -147,7 +147,11 @@ impl Prefab {
                         let components = components
                             .map(|component| unsafe {
                                 serialization
-                                    .dynamic_serialize_from(column.type_hash(), component.data())
+                                    .dynamic_serialize_from(
+                                        column.type_hash(),
+                                        component.data(),
+                                        registry,
+                                    )
                                     .map_err(|_| PrefabError::CouldNotSerializeType {
                                         type_name: type_.type_name().to_owned(),
                                         module_name: type_
@@ -229,6 +233,7 @@ impl Prefab {
                                     .dynamic_serialize_from(
                                         column.type_hash(),
                                         components.data(*row)?,
+                                        registry,
                                     )
                                     .map_err(|_| PrefabError::CouldNotSerializeType {
                                         type_name: type_.type_name().to_owned(),
@@ -305,7 +310,13 @@ impl Prefab {
                         let component = &column.components[index];
                         access.initialize_raw(type_)?;
                         serialization
-                            .dynamic_deserialize_to(info.type_hash(), data, component)
+                            .dynamic_deserialize_to(
+                                info.type_hash(),
+                                data,
+                                component,
+                                true,
+                                registry,
+                            )
                             .map_err(|_| PrefabError::CouldNotDeserializeType {
                                 type_name: column.type_name.to_owned(),
                                 module_name: column.module_name.to_owned(),
