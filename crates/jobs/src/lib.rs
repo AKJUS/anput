@@ -1,8 +1,10 @@
 pub mod coroutine;
 
+use intuicio_data::managed::{DynamicManagedLazy, ManagedLazy};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, HashSet, VecDeque},
     error::Error,
+    hash::{DefaultHasher, Hash, Hasher},
     pin::Pin,
     sync::{
         Arc, Condvar, Mutex, RwLock,
@@ -10,8 +12,8 @@ use std::{
         mpsc::{Receiver, Sender},
     },
     task::{Context, Poll, RawWaker, RawWakerVTable, Wake, Waker},
-    thread::{JoinHandle, available_parallelism, spawn},
-    time::Duration,
+    thread::{JoinHandle, ThreadId, available_parallelism, spawn},
+    time::{Duration, Instant},
 };
 
 enum Job {
@@ -34,6 +36,7 @@ impl Job {
     }
 }
 
+#[inline]
 fn traced_spin_loop() {
     #[cfg(feature = "deadlock-trace")]
     println!(
@@ -139,6 +142,12 @@ impl<T: Send + 'static> AllJobsHandle<T> {
         self.jobs
     }
 
+    pub fn many(handles: impl IntoIterator<Item = JobHandle<T>>) -> Self {
+        Self {
+            jobs: handles.into_iter().collect(),
+        }
+    }
+
     pub fn add(&mut self, handle: JobHandle<T>) {
         self.jobs.push(handle);
     }
@@ -206,6 +215,12 @@ impl<T: Send + 'static> AnyJobHandle<T> {
         self.jobs
     }
 
+    pub fn many(handles: impl IntoIterator<Item = JobHandle<T>>) -> Self {
+        Self {
+            jobs: handles.into_iter().collect(),
+        }
+    }
+
     pub fn add(&mut self, handle: JobHandle<T>) {
         self.jobs.push(handle);
     }
@@ -264,9 +279,9 @@ pub struct JobContext {
 
 #[derive(Default)]
 struct JobQueue {
-    /// [(job, work group, work groups count, worker name?)]
+    /// [(job, work group, work groups count, worker name?, thread id?)]
     #[allow(clippy::type_complexity)]
-    queue: RwLock<VecDeque<(Job, usize, usize, Option<String>)>>,
+    queue: RwLock<VecDeque<(Job, usize, usize, Option<String>, Option<ThreadId>)>>,
 }
 
 impl JobQueue {
@@ -280,19 +295,33 @@ impl JobQueue {
         work_group_index: usize,
         work_groups_count: usize,
         name: Option<String>,
+        thread_id: Option<ThreadId>,
     ) {
         if let Ok(mut queue) = self.queue.write() {
-            queue.push_front((job, work_group_index, work_groups_count, name));
+            queue.push_front((job, work_group_index, work_groups_count, name, thread_id));
+        }
+    }
+
+    fn enqueue_important(
+        &self,
+        job: Job,
+        work_group_index: usize,
+        work_groups_count: usize,
+        name: Option<String>,
+        thread_id: Option<ThreadId>,
+    ) {
+        if let Ok(mut queue) = self.queue.write() {
+            queue.push_back((job, work_group_index, work_groups_count, name, thread_id));
         }
     }
 
     fn dequeue(&self, worker_name: Option<&str>) -> Option<(Job, usize, usize)> {
         let mut queue = self.queue.write().ok()?;
-        let (job, group, groups, name) = queue.pop_back()?;
-        if name.as_deref() == worker_name {
+        let (job, group, groups, name, thread_id) = queue.pop_back()?;
+        if thread_id == Some(std::thread::current().id()) || name.as_deref() == worker_name {
             Some((job, group, groups))
         } else {
-            queue.push_front((job, group, groups, name));
+            queue.push_front((job, group, groups, name, thread_id));
             None
         }
     }
@@ -309,6 +338,8 @@ impl Worker {
         name: Option<String>,
         queue: Arc<JobQueue>,
         local_queue: Arc<JobQueue>,
+        meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+        hash_tokens: Arc<Mutex<HashSet<u64>>>,
         notify: Arc<(Mutex<bool>, Condvar)>,
     ) -> Worker {
         let terminate = Arc::new(AtomicBool::default());
@@ -316,10 +347,14 @@ impl Worker {
         let name2 = name.clone();
         let thread = spawn(move || {
             let mut temp = vec![];
-            let (waker, receiver) = JobsWaker::new_waker(match name2 {
-                Some(ref name) => JobLocation::NamedWorker(name.clone()),
-                None => JobLocation::UnnamedWorker,
-            });
+            let (waker, receiver) = JobsWaker::new_waker(
+                match name2 {
+                    Some(ref name) => JobLocation::NamedWorker(name.clone()),
+                    None => JobLocation::UnnamedWorker,
+                },
+                meta,
+                hash_tokens,
+            );
             let mut cx = Context::from_waker(&waker);
             loop {
                 if terminate2.load(Ordering::Relaxed) {
@@ -338,29 +373,53 @@ impl Worker {
                         for command in receiver.try_iter() {
                             notify_workers = true;
                             match command {
-                                JobsWakerCommand::MoveToLocal => {
-                                    move_to = JobMoveTo::Local;
-                                }
-                                JobsWakerCommand::MoveToUnnamedWorker => {
-                                    move_to = JobMoveTo::AnyWorker;
-                                }
-                                JobsWakerCommand::MoveToNamedWorker(name) => {
-                                    move_to = JobMoveTo::NamedWorker(name);
-                                }
+                                JobsWakerCommand::MoveTo(location) => match location {
+                                    JobLocation::Local => {
+                                        move_to = JobMoveTo::Local;
+                                    }
+                                    JobLocation::UnnamedWorker => {
+                                        move_to = JobMoveTo::AnyWorker;
+                                    }
+                                    JobLocation::NamedWorker(name) => {
+                                        move_to = JobMoveTo::NamedWorker(name);
+                                    }
+                                    JobLocation::Thread(thread) => {
+                                        move_to = JobMoveTo::Thread(thread);
+                                    }
+                                    JobLocation::Unknown => {}
+                                },
+                                JobsWakerCommand::ScheduleOn(location, job) => match location {
+                                    JobLocation::Local => {
+                                        local_queue.enqueue_important(job, 0, 1, None, None);
+                                    }
+                                    JobLocation::UnnamedWorker => {
+                                        queue.enqueue_important(job, 0, 1, None, None);
+                                    }
+                                    JobLocation::NamedWorker(name) => {
+                                        queue.enqueue_important(job, 0, 1, Some(name), None);
+                                    }
+                                    JobLocation::Thread(thread) => {
+                                        queue.enqueue_important(job, 0, 1, None, Some(thread));
+                                    }
+                                    JobLocation::Unknown => {}
+                                },
                             }
                         }
                         match move_to {
                             JobMoveTo::None => {
-                                temp.push((job, group, groups, name2.clone()));
+                                temp.push((job, group, groups, name2.clone(), None));
                             }
                             JobMoveTo::Local => {
-                                local_queue.enqueue(job, group, groups, None);
+                                local_queue.enqueue(job, group, groups, None, None);
                             }
                             JobMoveTo::AnyWorker => {
-                                temp.push((job, group, groups, None));
+                                temp.push((job, group, groups, None, None));
                             }
                             JobMoveTo::NamedWorker(name) => {
-                                temp.push((job, group, groups, Some(name)));
+                                temp.push((job, group, groups, Some(name), None));
+                            }
+                            JobMoveTo::Thread(thread) => {
+                                temp.push((job, group, groups, None, Some(thread)));
                             }
                         }
                     }
@@ -375,8 +434,8 @@ impl Worker {
                         cvar.notify_all();
                     }
                 }
-                for (job, group, groups, name) in temp.drain(..) {
-                    queue.enqueue(job, group, groups, name);
+                for (job, group, groups, name, thread) in temp.drain(..) {
+                    queue.enqueue(job, group, groups, name, thread);
                 }
                 if !queue.is_empty() {
                     continue;
@@ -404,12 +463,9 @@ impl Worker {
     }
 }
 
-#[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum JobsWakerCommand {
-    MoveToLocal,
-    MoveToUnnamedWorker,
-    MoveToNamedWorker(String),
+    MoveTo(JobLocation),
+    ScheduleOn(JobLocation, Job),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -418,19 +474,51 @@ enum JobMoveTo {
     Local,
     AnyWorker,
     NamedWorker(String),
+    Thread(ThreadId),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum JobLocation {
+    #[default]
     Unknown,
     Local,
     UnnamedWorker,
     NamedWorker(String),
+    Thread(ThreadId),
+}
+
+impl JobLocation {
+    pub fn named_worker(name: impl ToString) -> Self {
+        JobLocation::NamedWorker(name.to_string())
+    }
+
+    pub fn thread(thread: ThreadId) -> Self {
+        JobLocation::Thread(thread)
+    }
+
+    pub fn current_thread() -> Self {
+        JobLocation::Thread(std::thread::current().id())
+    }
+}
+
+#[derive(Default)]
+pub struct JobToken {
+    hash_tokens: Arc<Mutex<HashSet<u64>>>,
+    hash: u64,
+}
+
+impl Drop for JobToken {
+    fn drop(&mut self) {
+        let mut hash_tokens = self.hash_tokens.lock().unwrap();
+        hash_tokens.remove(&self.hash);
+    }
 }
 
 pub(crate) struct JobsWaker {
     sender: Sender<JobsWakerCommand>,
     location: JobLocation,
+    meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+    hash_tokens: Arc<Mutex<HashSet<u64>>>,
 }
 
 impl JobsWaker {
@@ -448,9 +536,18 @@ impl JobsWaker {
         let _ = unsafe { Arc::from_raw(data as *const Self) };
     }
 
-    pub fn new_waker(location: JobLocation) -> (Waker, Receiver<JobsWakerCommand>) {
+    pub fn new_waker(
+        location: JobLocation,
+        meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+        hash_tokens: Arc<Mutex<HashSet<u64>>>,
+    ) -> (Waker, Receiver<JobsWakerCommand>) {
         let (sender, receiver) = std::sync::mpsc::channel();
-        let arc = Arc::new(Self { sender, location });
+        let arc = Arc::new(Self {
+            sender,
+            location,
+            meta,
+            hash_tokens,
+        });
         let raw = RawWaker::new(Arc::into_raw(arc) as *const (), &Self::VTABLE);
         (unsafe { Waker::from_raw(raw) }, receiver)
     }
@@ -470,6 +567,52 @@ impl JobsWaker {
     pub fn location(&self) -> JobLocation {
         self.location.clone()
     }
+
+    pub fn meta(&self, name: &str) -> Option<DynamicManagedLazy> {
+        let meta = self.meta.read().ok()?;
+        meta.get(name).cloned()
+    }
+
+    pub fn acquire_token<T: Hash>(&self, subject: &T) -> Option<JobToken> {
+        let mut hasher = DefaultHasher::new();
+        subject.hash(&mut hasher);
+        let hash = hasher.finish();
+        let mut hash_tokens = self.hash_tokens.lock().unwrap();
+        if hash_tokens.contains(&hash) {
+            None
+        } else {
+            hash_tokens.insert(hash);
+            Some(JobToken {
+                hash_tokens: self.hash_tokens.clone(),
+                hash,
+            })
+        }
+    }
+
+    pub fn acquire_token_timeout<T: Hash>(
+        &self,
+        subject: &T,
+        timeout: Duration,
+    ) -> Option<JobToken> {
+        let mut hasher = DefaultHasher::new();
+        subject.hash(&mut hasher);
+        let hash = hasher.finish();
+        let timer = Instant::now();
+        while timer.elapsed() < timeout {
+            let mut hash_tokens = self.hash_tokens.try_lock().unwrap();
+            if hash_tokens.contains(&hash) {
+                traced_spin_loop();
+                continue;
+            } else {
+                hash_tokens.insert(hash);
+                return Some(JobToken {
+                    hash_tokens: self.hash_tokens.clone(),
+                    hash,
+                });
+            }
+        }
+        None
+    }
 }
 
 impl Wake for JobsWaker {
@@ -480,6 +623,8 @@ pub struct Jobs {
     workers: Vec<Worker>,
     queue: Arc<JobQueue>,
     local_queue: Arc<JobQueue>,
+    meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+    hash_tokens: Arc<Mutex<HashSet<u64>>>,
     /// (ready, cond var)
     notify: Arc<(Mutex<bool>, Condvar)>,
 }
@@ -518,12 +663,25 @@ impl Jobs {
         let queue = Arc::new(JobQueue::default());
         let local_queue = Arc::new(JobQueue::default());
         let notify = Arc::new((Mutex::default(), Condvar::new()));
+        let meta = Arc::new(RwLock::new(HashMap::default()));
+        let hash_tokens = Arc::new(Mutex::new(HashSet::default()));
         Jobs {
             workers: (0..count)
-                .map(|_| Worker::new(None, queue.clone(), local_queue.clone(), notify.clone()))
+                .map(|_| {
+                    Worker::new(
+                        None,
+                        queue.clone(),
+                        local_queue.clone(),
+                        meta.clone(),
+                        hash_tokens.clone(),
+                        notify.clone(),
+                    )
+                })
                 .collect(),
             queue,
             local_queue,
+            meta,
+            hash_tokens,
             notify,
         }
     }
@@ -543,6 +701,8 @@ impl Jobs {
             None,
             self.queue.clone(),
             self.local_queue.clone(),
+            self.meta.clone(),
+            self.hash_tokens.clone(),
             self.notify.clone(),
         ));
     }
@@ -552,6 +712,8 @@ impl Jobs {
             Some(name.to_string()),
             self.queue.clone(),
             self.local_queue.clone(),
+            self.meta.clone(),
+            self.hash_tokens.clone(),
             self.notify.clone(),
         ));
     }
@@ -590,10 +752,36 @@ impl Jobs {
             .filter_map(|worker| worker.name.as_deref())
     }
 
+    pub fn set_meta(&self, name: impl ToString, value: DynamicManagedLazy) {
+        let mut meta = self.meta.write().unwrap();
+        meta.insert(name.to_string(), value);
+    }
+
+    pub fn get_meta<T>(&self, name: &str) -> Option<ManagedLazy<T>> {
+        let meta = self.meta.read().unwrap();
+        meta.get(name)
+            .cloned()
+            .and_then(|value| value.into_typed::<T>().ok())
+    }
+
+    pub fn get_meta_dynamic(&self, name: &str) -> Option<DynamicManagedLazy> {
+        let meta = self.meta.read().unwrap();
+        meta.get(name).cloned()
+    }
+
     pub fn run_local(&self) {
+        self.run_local_timeout(Duration::MAX);
+    }
+
+    pub fn run_local_timeout(&self, timeout: Duration) {
         let mut temp = vec![];
-        let (waker, receiver) = JobsWaker::new_waker(JobLocation::Local);
+        let (waker, receiver) = JobsWaker::new_waker(
+            JobLocation::Local,
+            self.meta.clone(),
+            self.hash_tokens.clone(),
+        );
         let mut cx = Context::from_waker(&waker);
+        let timer = Instant::now();
         while let Some((job, group, groups)) = self.local_queue.dequeue(None) {
             let mut notify_workers = false;
             if let Some(job) = job.poll(
@@ -607,15 +795,36 @@ impl Jobs {
                 for command in receiver.try_iter() {
                     notify_workers = true;
                     match command {
-                        JobsWakerCommand::MoveToLocal => {
-                            move_to = JobMoveTo::Local;
-                        }
-                        JobsWakerCommand::MoveToUnnamedWorker => {
-                            move_to = JobMoveTo::AnyWorker;
-                        }
-                        JobsWakerCommand::MoveToNamedWorker(name) => {
-                            move_to = JobMoveTo::NamedWorker(name);
-                        }
+                        JobsWakerCommand::MoveTo(location) => match location {
+                            JobLocation::Local => {
+                                move_to = JobMoveTo::Local;
+                            }
+                            JobLocation::UnnamedWorker => {
+                                move_to = JobMoveTo::AnyWorker;
+                            }
+                            JobLocation::NamedWorker(name) => {
+                                move_to = JobMoveTo::NamedWorker(name);
+                            }
+                            JobLocation::Thread(thread) => {
+                                move_to = JobMoveTo::Thread(thread);
+                            }
+                            JobLocation::Unknown => {}
+                        },
+                        JobsWakerCommand::ScheduleOn(location, job) => match location {
+                            JobLocation::Local => {
+                                self.local_queue.enqueue_important(job, 0, 1, None, None);
+                            }
+                            JobLocation::UnnamedWorker => {
+                                self.queue.enqueue_important(job, 0, 1, None, None);
+                            }
+                            JobLocation::NamedWorker(name) => {
+                                self.queue.enqueue_important(job, 0, 1, Some(name), None);
+                            }
+                            JobLocation::Thread(thread) => {
+                                self.queue.enqueue_important(job, 0, 1, None, Some(thread));
+                            }
+                            JobLocation::Unknown => {}
+                        },
                     }
                 }
                 match move_to {
@@ -623,10 +832,13 @@ impl Jobs {
                         temp.push((job, group, groups));
                     }
                     JobMoveTo::AnyWorker => {
-                        self.queue.enqueue(job, group, groups, None);
+                        self.queue.enqueue(job, group, groups, None, None);
                     }
                     JobMoveTo::NamedWorker(name) => {
-                        self.queue.enqueue(job, group, groups, Some(name));
+                        self.queue.enqueue(job, group, groups, Some(name), None);
+                    }
+                    JobMoveTo::Thread(thread) => {
+                        self.queue.enqueue(job, group, groups, None, Some(thread));
                     }
                 }
             }
@@ -637,9 +849,12 @@ impl Jobs {
                 }
                 cvar.notify_all();
             }
+            if timer.elapsed() >= timeout {
+                break;
+            }
         }
         for (job, group, groups) in temp {
-            self.local_queue.enqueue(job, group, groups, None);
+            self.local_queue.enqueue(job, group, groups, None, None);
         }
     }
 
@@ -653,8 +868,9 @@ impl Jobs {
         self.workers.len()
     }
 
-    pub fn spawn<T: Send + 'static>(
+    pub fn spawn_on<T: Send + 'static>(
         &self,
+        location: JobLocation,
         job: impl Future<Output = T> + Send + Sync + 'static,
     ) -> Result<JobHandle<T>, Box<dyn Error>> {
         let handle = JobHandle::<T>::default();
@@ -662,36 +878,21 @@ impl Jobs {
         let job = Job::Future(Box::pin(async move {
             handle2.put(job.await);
         }));
-        self.schedule(false, None, handle, job)
+        let (local, name, thread_id) = match location {
+            JobLocation::Local => (true, None, None),
+            JobLocation::UnnamedWorker => (false, None, None),
+            JobLocation::NamedWorker(name) => (false, Some(name), None),
+            JobLocation::Thread(thread) => (false, None, Some(thread)),
+            JobLocation::Unknown => {
+                return Err("Unknown job location".into());
+            }
+        };
+        self.schedule(local, name, thread_id, handle, job)
     }
 
-    pub fn spawn_named<T: Send + 'static>(
+    pub fn queue_on<T: Send + 'static>(
         &self,
-        name: impl ToString,
-        job: impl Future<Output = T> + Send + Sync + 'static,
-    ) -> Result<JobHandle<T>, Box<dyn Error>> {
-        let handle = JobHandle::<T>::default();
-        let handle2 = handle.clone();
-        let job = Job::Future(Box::pin(async move {
-            handle2.put(job.await);
-        }));
-        self.schedule(false, Some(name.to_string()), handle, job)
-    }
-
-    pub fn spawn_local<T: Send + 'static>(
-        &self,
-        job: impl Future<Output = T> + Send + Sync + 'static,
-    ) -> Result<JobHandle<T>, Box<dyn Error>> {
-        let handle = JobHandle::<T>::default();
-        let handle2 = handle.clone();
-        let job = Job::Future(Box::pin(async move {
-            handle2.put(job.await);
-        }));
-        self.schedule(true, None, handle, job)
-    }
-
-    pub fn queue<T: Send + 'static>(
-        &self,
+        location: JobLocation,
         job: impl FnOnce(JobContext) -> T + Send + Sync + 'static,
     ) -> Result<JobHandle<T>, Box<dyn Error>> {
         let handle = JobHandle::<T>::default();
@@ -699,45 +900,30 @@ impl Jobs {
         let job = Job::Closure(Box::new(move |ctx| {
             handle2.put(job(ctx));
         }));
-        self.schedule(false, None, handle, job)
-    }
-
-    pub fn queue_named<T: Send + 'static>(
-        &self,
-        name: impl ToString,
-        job: impl FnOnce(JobContext) -> T + Send + Sync + 'static,
-    ) -> Result<JobHandle<T>, Box<dyn Error>> {
-        let handle = JobHandle::<T>::default();
-        let handle2 = handle.clone();
-        let job = Job::Closure(Box::new(move |ctx| {
-            handle2.put(job(ctx));
-        }));
-        self.schedule(false, Some(name.to_string()), handle, job)
-    }
-
-    pub fn queue_local<T: Send + 'static>(
-        &self,
-        job: impl FnOnce(JobContext) -> T + Send + Sync + 'static,
-    ) -> Result<JobHandle<T>, Box<dyn Error>> {
-        let handle = JobHandle::<T>::default();
-        let handle2 = handle.clone();
-        let job = Job::Closure(Box::new(move |ctx| {
-            handle2.put(job(ctx));
-        }));
-        self.schedule(true, None, handle, job)
+        let (local, name, thread_id) = match location {
+            JobLocation::Local => (true, None, None),
+            JobLocation::UnnamedWorker => (false, None, None),
+            JobLocation::NamedWorker(name) => (false, Some(name), None),
+            JobLocation::Thread(thread) => (false, None, Some(thread)),
+            JobLocation::Unknown => {
+                return Err("Unknown job location".into());
+            }
+        };
+        self.schedule(local, name, thread_id, handle, job)
     }
 
     fn schedule<T: Send + 'static>(
         &self,
         local: bool,
         name: Option<String>,
+        thread_id: Option<ThreadId>,
         handle: JobHandle<T>,
         job: Job,
     ) -> Result<JobHandle<T>, Box<dyn Error>> {
         if local || self.workers.is_empty() {
-            self.local_queue.enqueue(job, 0, 1, name);
+            self.local_queue.enqueue(job, 0, 1, name, None);
         } else {
-            self.queue.enqueue(job, 0, 1, name);
+            self.queue.enqueue(job, 0, 1, name, thread_id);
         }
         let (lock, cvar) = &*self.notify;
         let mut running = lock.lock().map_err(|error| format!("{}", error))?;
@@ -771,12 +957,13 @@ impl Jobs {
                     let job = Arc::clone(&job);
                     let handle = JobHandle::<T>::default();
                     let handle2 = handle.clone();
-                    self.queue.enqueue(
+                    self.queue.enqueue_important(
                         Job::Closure(Box::new(move |ctx| {
                             handle2.put(job(ctx));
                         })),
                         group,
                         work_groups,
+                        None,
                         None,
                     );
                     handle
@@ -810,23 +997,25 @@ impl<'env, T: Send + 'static> ScopedJobs<'env, T> {
         }
     }
 
-    pub fn queue(
+    pub fn spawn_on(
         &mut self,
-        job: impl FnOnce(JobContext) -> T + Send + Sync + 'env,
+        location: JobLocation,
+        job: impl Future<Output = T> + Send + Sync + 'env,
     ) -> Result<(), Box<dyn Error>> {
         let job = unsafe {
             std::mem::transmute::<
-                Box<dyn FnOnce(JobContext) -> T + Send + Sync + 'env>,
-                Box<dyn FnOnce(JobContext) -> T + Send + Sync + 'static>,
-            >(Box::new(job))
+                Pin<Box<dyn Future<Output = T> + Send + Sync + 'env>>,
+                Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>,
+            >(Box::pin(job))
         };
-        self.handles.add(self.jobs.queue(job)?);
+        let handle = self.jobs.spawn_on(location, job)?;
+        self.handles.add(handle);
         Ok(())
     }
 
-    pub fn queue_named(
+    pub fn queue_on(
         &mut self,
-        name: impl ToString,
+        location: JobLocation,
         job: impl FnOnce(JobContext) -> T + Send + Sync + 'env,
     ) -> Result<(), Box<dyn Error>> {
         let job = unsafe {
@@ -835,7 +1024,7 @@ impl<'env, T: Send + 'static> ScopedJobs<'env, T> {
                 Box<dyn FnOnce(JobContext) -> T + Send + Sync + 'static>,
             >(Box::new(job))
         };
-        self.handles.add(self.jobs.queue_named(name, job)?);
+        self.handles.add(self.jobs.queue_on(location, job)?);
         Ok(())
     }
 
@@ -882,8 +1071,10 @@ impl<'env, T: Send + 'static> ScopedJobs<'env, T> {
 mod tests {
     use super::*;
     use crate::coroutine::{
-        block_on, location, move_to_local, move_to_named_worker, move_to_unnamed_worker, yield_now,
+        acquire_token, block_on, location, meta, move_to, queue_on, spawn_on, with_all, with_any,
+        yield_now,
     };
+    use std::sync::atomic::AtomicUsize;
 
     #[test]
     fn test_jobs() {
@@ -892,14 +1083,18 @@ mod tests {
         let data2 = data.clone();
 
         let job = jobs
-            .queue(move |_| data.into_iter().sum::<usize>())
+            .queue_on(JobLocation::UnnamedWorker, move |_| {
+                data.into_iter().sum::<usize>()
+            })
             .unwrap();
 
         let result = job.wait().unwrap();
         assert_eq!(result, 4950);
 
         let job = jobs
-            .queue_local(move |_| data2.into_iter().sum::<usize>())
+            .queue_on(JobLocation::Local, move |_| {
+                data2.into_iter().sum::<usize>()
+            })
             .unwrap();
 
         while !job.is_done() {
@@ -938,7 +1133,7 @@ mod tests {
 
         let mut scope = ScopedJobs::new(&jobs);
         scope
-            .queue(|_| {
+            .queue_on(JobLocation::UnnamedWorker, |_| {
                 for value in &mut data {
                     *value *= 2;
                 }
@@ -957,7 +1152,7 @@ mod tests {
         let data2 = data.clone();
 
         let job = jobs
-            .spawn(async move {
+            .spawn_on(JobLocation::UnnamedWorker, async move {
                 let mut result = 0;
                 for value in data {
                     result += value;
@@ -971,7 +1166,7 @@ mod tests {
         assert_eq!(result, 4950);
 
         let job = jobs
-            .spawn_local(async move {
+            .spawn_on(JobLocation::Local, async move {
                 let mut result = 0;
                 for value in data2 {
                     result += value;
@@ -986,6 +1181,46 @@ mod tests {
         }
         let result = job.try_take().unwrap().unwrap();
         assert_eq!(result, 4950);
+
+        let job = jobs
+            .spawn_on(JobLocation::UnnamedWorker, async {
+                let result = Arc::new(AtomicUsize::new(0));
+                let result1 = result.clone();
+                let result2 = result.clone();
+                with_all(vec![
+                    Box::pin(async move {
+                        result1.fetch_add(1, Ordering::SeqCst);
+                    }),
+                    Box::pin(async move {
+                        result2.fetch_add(2, Ordering::SeqCst);
+                    }),
+                ])
+                .await;
+                result.load(Ordering::SeqCst)
+            })
+            .unwrap();
+        let result = block_on(job).unwrap();
+        assert_eq!(result, 3);
+
+        let job = jobs
+            .spawn_on(JobLocation::UnnamedWorker, async {
+                let result = Arc::new(AtomicUsize::new(0));
+                let result1 = result.clone();
+                let result2 = result.clone();
+                with_any(vec![
+                    Box::pin(async move {
+                        result1.store(1, Ordering::SeqCst);
+                    }),
+                    Box::pin(async move {
+                        result2.store(2, Ordering::SeqCst);
+                    }),
+                ])
+                .await;
+                result.load(Ordering::SeqCst)
+            })
+            .unwrap();
+        let result = block_on(job).unwrap();
+        assert!(result > 0);
     }
 
     #[test]
@@ -993,17 +1228,17 @@ mod tests {
         let jobs = Jobs::new(1).with_named_worker("foo");
 
         let job = jobs
-            .spawn_local(async {
+            .spawn_on(JobLocation::Local, async {
                 yield_now().await;
                 // A: Local
                 println!("A: {:?}", location().await);
-                move_to_unnamed_worker().await;
+                move_to(JobLocation::UnnamedWorker).await;
                 // B: UnnamedWorker
                 println!("B: {:?}", location().await);
-                move_to_named_worker("foo").await;
+                move_to(JobLocation::named_worker("foo")).await;
                 // C: NamedWorker("foo")
                 println!("C: {:?}", location().await);
-                move_to_local().await;
+                move_to(JobLocation::Local).await;
                 // D: Local
                 println!("D: {:?}", location().await);
                 42
@@ -1015,5 +1250,125 @@ mod tests {
         }
         let result = job.try_take().unwrap().unwrap();
         assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_futures_schedule() {
+        let jobs = Jobs::new(1).with_named_worker("foo");
+
+        let job = jobs
+            .spawn_on(JobLocation::Local, async {
+                spawn_on(JobLocation::Local, async {
+                    println!("A: {:?}", location().await);
+                })
+                .await;
+                spawn_on(JobLocation::UnnamedWorker, async {
+                    println!("B: {:?}", location().await);
+                })
+                .await;
+                spawn_on(JobLocation::named_worker("foo"), async {
+                    println!("C: {:?}", location().await);
+                })
+                .await;
+                queue_on(JobLocation::Local, |_| {
+                    println!("D: Local closure");
+                })
+                .await;
+                queue_on(JobLocation::UnnamedWorker, |_| {
+                    println!("E: Unnamed worker closure");
+                })
+                .await;
+                queue_on(JobLocation::named_worker("foo"), |_| {
+                    println!("F: Named worker closure");
+                })
+                .await;
+                42
+            })
+            .unwrap();
+
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.try_take().unwrap().unwrap();
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_futures_meta() {
+        let jobs = Jobs::default();
+        let mut value = 42usize;
+        let (value_lazy, _value_lifetime) = DynamicManagedLazy::make(&mut value);
+        jobs.set_meta("value", value_lazy);
+
+        let job = jobs
+            .spawn_on(JobLocation::UnnamedWorker, async {
+                let value = meta::<usize>("value").await.unwrap();
+                *value.read().unwrap()
+            })
+            .unwrap();
+
+        let result = block_on(job).unwrap();
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_futures_acquire_token() {
+        let jobs = Jobs::new(3);
+
+        let a = jobs
+            .spawn_on(JobLocation::UnnamedWorker, async {
+                let _token = acquire_token(&"foo").await;
+                std::thread::sleep(Duration::from_millis(50));
+                for i in 0..10 {
+                    println!("{}", i);
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            })
+            .unwrap();
+        let b = jobs
+            .spawn_on(JobLocation::UnnamedWorker, async {
+                let _token = acquire_token(&"foo").await;
+                std::thread::sleep(Duration::from_millis(50));
+                for i in 10..20 {
+                    println!("{}", i);
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            })
+            .unwrap();
+        block_on(AllJobsHandle::many([a, b])).unwrap();
+
+        #[cfg(not(miri))]
+        {
+            use std::path::Path;
+
+            async fn load_file(path: impl AsRef<Path>) -> Option<String> {
+                let path = path.as_ref();
+                let _token = acquire_token(&path).await;
+                std::fs::read_to_string(path).ok()
+            }
+
+            async fn save_file(path: impl AsRef<Path>, content: &str) {
+                let path = path.as_ref();
+                let _token = acquire_token(&path).await;
+                let _ = std::fs::write(path, content);
+            }
+
+            const PATH: &str = "./resources/test.txt";
+            let content = "Hello, Jobs!".repeat(1000);
+
+            let a = jobs
+                .spawn_on(JobLocation::UnnamedWorker, async move {
+                    std::thread::sleep(Duration::from_millis(50));
+                    save_file(PATH, &content).await;
+                })
+                .unwrap();
+            let b = jobs
+                .spawn_on(JobLocation::UnnamedWorker, async {
+                    std::thread::sleep(Duration::from_millis(50));
+                    let _ = load_file(PATH).await;
+                })
+                .unwrap();
+            block_on(AllJobsHandle::many([a, b])).unwrap();
+        }
     }
 }

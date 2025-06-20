@@ -1,5 +1,5 @@
 use anput::{jobs::Jobs, prelude::*, view::WorldView};
-use anput_jobs::coroutine::block_on;
+use anput_jobs::{JobLocation, coroutine::block_on};
 use rand::{Rng, rng};
 use std::{collections::HashSet, error::Error};
 
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .entity_by_index(rng.random_range(0..world.len()))
         .unwrap();
     let view = WorldView::new::<(Relation<Next>,)>(&world);
-    let job = jobs.queue(move |_| {
+    let job = jobs.queue_on(JobLocation::UnnamedWorker, move |_| {
         fn search(
             source: Entity,
             target: Entity,

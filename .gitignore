@@ -6,4 +6,5 @@ Cargo.lock
 *.bat
 *.log
 *.bimp
-crate/examples/snapshot.save
+crates/examples/snapshot.save
+crates/jobs/resources/
