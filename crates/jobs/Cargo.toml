@@ -1,6 +1,6 @@
 [package]
 name = "anput-jobs"
-version = "0.12.1"
+version = "0.12.2"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Jobs plugin for Anput ECS"
@@ -12,7 +12,5 @@ readme = "../../README.md"
 
 [features]
 deadlock-trace = []
-async = ["tokio"]
 
 [dependencies]
-tokio = { version = "1.43", features = ["rt"], optional = true }

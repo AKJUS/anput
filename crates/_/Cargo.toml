@@ -1,6 +1,6 @@
 [package]
 name = "anput"
-version = "0.12.1"
+version = "0.12.2"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Scriptable Entity-Component-System (powered by Intuicio)"
@@ -11,9 +11,7 @@ documentation = "https://docs.rs/anput"
 readme = "../../README.md"
 
 [features]
-default = ["async"]
 deadlock-trace = ["anput-jobs/deadlock-trace"]
-async = ["anput-jobs/async"]
 
 [dependencies]
 anput-jobs = { version = "0.12", path = "../jobs" }
@@ -24,6 +22,5 @@ intuicio-framework-serde = "0.46"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-rand = "0.8"
+rand = "0.9"
 serde_json = "1"
-tokio = { version = "1.43", features = ["rt", "rt-multi-thread", "macros"] }

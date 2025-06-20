@@ -15,7 +15,7 @@ struct Strength {
     value: usize,
 }
 
-const FILENAME: &str = "./crate/examples/snapshot.save";
+const FILENAME: &str = "./crates/_/examples/snapshot.save";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut universe = Universe::default().with_basics(10240, 10240);

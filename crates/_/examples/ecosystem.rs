@@ -1,5 +1,5 @@
 use anput::prelude::*;
-use rand::{Rng, thread_rng};
+use rand::{Rng, rng};
 use std::{
     error::Error,
     io::{Write, stdout},
@@ -95,13 +95,13 @@ fn init(context: SystemContext) -> Result<(), Box<dyn Error>> {
 
     for _ in 0..INITIAL_POPULATION {
         let position = Position(
-            thread_rng().gen_range(0..screen.width),
-            thread_rng().gen_range(0..screen.height),
+            rng().random_range(0..screen.width),
+            rng().random_range(0..screen.height),
         );
         let lifetime = Lifetime::default();
         let reproduction = Reproduction::default();
 
-        if thread_rng().gen_bool(0.5) {
+        if rng().random_bool(0.5) {
             commands.command(SpawnCommand::new((Fox, position, lifetime, reproduction)));
         } else {
             commands.command(SpawnCommand::new((Bunny, position, lifetime, reproduction)));
@@ -157,9 +157,9 @@ fn movement(context: SystemContext) -> Result<(), Box<dyn Error>> {
     let (world, screen, query) =
         context.fetch::<(&World, Res<true, &ScreenGrid>, Query<true, &mut Position>)>()?;
 
-    let mut rng = thread_rng();
+    let mut rng = rng();
     for Position(col, row) in query.query(world) {
-        match rng.gen_range(0..4) {
+        match rng.random_range(0..4) {
             0 => *col = (*col + screen.width - 1) % screen.width,
             1 => *row = (*row + screen.height - 1) % screen.height,
             2 => *col = (*col + 1) % screen.width,

@@ -1,5 +1,5 @@
 use anput::{observer::ChangeObserver, prelude::*};
-use rand::{Rng, thread_rng};
+use rand::{Rng, rng};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn spawn_temperature_change(context: SystemContext) -> Result<(), Box<dyn Error>> {
     let mut commands = context.fetch::<Res<true, &mut CommandBuffer>>()?;
 
-    if thread_rng().gen_bool(0.5) {
+    if rng().random_bool(0.5) {
         commands.command(SpawnCommand::new((Heat,)));
     } else {
         commands.command(SpawnCommand::new((Cold,)));

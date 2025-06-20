@@ -1,6 +1,6 @@
 use anput::{multiverse::Multiverse, prelude::*};
 use intuicio_derive::IntuicioStruct;
-use rand::{Rng, thread_rng};
+use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 
@@ -43,16 +43,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn make_world_chunk() -> Result<World, Box<dyn Error>> {
     let mut world = World::default();
-    let mut rng = thread_rng();
+    let mut rng = rng();
 
-    for _ in 0..rng.gen_range(2..4) {
+    for _ in 0..rng.random_range(2..4) {
         let health = Health {
-            value: rng.gen_range(1..10),
+            value: rng.random_range(1..10),
         };
         let strength = Strength {
-            value: rng.gen_range(1..10),
+            value: rng.random_range(1..10),
         };
-        if rng.gen_bool(0.5) {
+        if rng.random_bool(0.5) {
             world.spawn((Monster, health, strength))?;
         } else {
             world.spawn((Animal, health, strength))?;

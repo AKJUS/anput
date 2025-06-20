@@ -1,5 +1,5 @@
 use anput::prelude::*;
-use rand::{Rng, thread_rng};
+use rand::{Rng, rng};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn spawn_monster(context: SystemContext) -> Result<(), Box<dyn Error>> {
     let mut commands = context.fetch::<Res<true, &mut CommandBuffer>>()?;
 
-    for _ in 0..thread_rng().gen_range(0..3) {
+    for _ in 0..rng().random_range(0..3) {
         commands.command(SpawnCommand::new((MonsterEvolution::default(),)));
     }
 
