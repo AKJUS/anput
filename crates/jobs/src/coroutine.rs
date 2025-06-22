@@ -12,6 +12,7 @@ use std::{
     thread::Thread,
     time::{Duration, Instant},
 };
+use typid::ID;
 
 #[derive(Default)]
 pub struct OnExit {
@@ -340,6 +341,7 @@ where
         if let Some(job) = job.take() {
             if let Some(waker) = JobsWaker::try_cast(waker) {
                 waker.enqueue(JobObject {
+                    id: ID::new(),
                     job,
                     context: JobContext {
                         work_group_index: 0,
@@ -383,6 +385,7 @@ where
         if let Some(job) = job.take() {
             if let Some(waker) = JobsWaker::try_cast(waker) {
                 waker.enqueue(JobObject {
+                    id: ID::new(),
                     job,
                     context: JobContext {
                         work_group_index: 0,
@@ -420,6 +423,7 @@ pub async fn queue_on<T: Send + 'static>(
         if let Some(job) = job.take() {
             if let Some(waker) = JobsWaker::try_cast(waker) {
                 waker.enqueue(JobObject {
+                    id: ID::new(),
                     job,
                     context: JobContext {
                         work_group_index: 0,
@@ -450,6 +454,7 @@ pub async fn on_exit(future: impl Future<Output = ()> + Send + Sync + 'static) -
             if let Some(job) = job.take() {
                 OnExit {
                     job: Some(JobObject {
+                        id: ID::new(),
                         job,
                         context: JobContext {
                             work_group_index: 0,

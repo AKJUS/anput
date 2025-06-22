@@ -1,6 +1,6 @@
 [package]
 name = "anput-jobs"
-version = "0.15.1"
+version = "0.15.2"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Jobs plugin for Anput ECS"
@@ -15,3 +15,4 @@ deadlock-trace = []
 
 [dependencies]
 intuicio-data = "0.46"
+typid = "1"
