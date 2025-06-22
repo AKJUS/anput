@@ -7,7 +7,7 @@ use crate::{
     universe::{QuickPlugin, Universe},
     world::Relation,
 };
-use anput_jobs::JobLocation;
+use anput_jobs::{JobLocation, JobPriority};
 use std::{
     borrow::Cow,
     collections::{HashSet, VecDeque},
@@ -160,11 +160,14 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
         {
             match &*parallelize {
                 SystemParallelize::AnyWorker => {
-                    scoped_jobs.queue_on(JobLocation::UnnamedWorker, move |_| job())?
+                    scoped_jobs
+                        .queue_on(JobLocation::Unknown, JobPriority::Normal, move |_| job())?
                 }
-                SystemParallelize::NamedWorker(cow) => {
-                    scoped_jobs.queue_on(JobLocation::named_worker(cow.as_ref()), move |_| job())?
-                }
+                SystemParallelize::NamedWorker(cow) => scoped_jobs.queue_on(
+                    JobLocation::named_worker(cow.as_ref()),
+                    JobPriority::Normal,
+                    move |_| job(),
+                )?,
             }
         } else {
             job()?;
