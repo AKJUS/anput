@@ -9,7 +9,7 @@ use std::{
     pin::Pin,
     sync::{Arc, Mutex, RwLock, mpsc::Receiver},
     task::{Context, Poll, Wake},
-    thread::{Thread, current, park},
+    thread::Thread,
     time::{Duration, Instant},
 };
 
@@ -43,13 +43,13 @@ pub fn block_on<F: Future>(future: F) -> F::Output {
     }
 
     let mut future = Box::pin(future);
-    let t = current();
+    let t = std::thread::current();
     let waker = Arc::new(ThreadWaker(t)).into();
     let mut ctx = Context::from_waker(&waker);
     loop {
         match future.as_mut().poll(&mut ctx) {
             Poll::Ready(output) => return output,
-            Poll::Pending => park(),
+            Poll::Pending => std::thread::park(),
         }
     }
 }
@@ -258,7 +258,7 @@ pub async fn meta<T>(name: &str) -> Option<ManagedLazy<T>> {
         let waker = cx.waker();
         let result = if let Some(waker) = JobsWaker::try_cast(waker) {
             waker
-                .meta(name)
+                .get_meta(name)
                 .and_then(|lazy| lazy.into_typed::<T>().ok())
         } else {
             None
@@ -273,7 +273,7 @@ pub async fn meta_dynamic(name: &str) -> Option<DynamicManagedLazy> {
     poll_fn(move |cx| {
         let waker = cx.waker();
         let result = if let Some(waker) = JobsWaker::try_cast(waker) {
-            waker.meta(name)
+            waker.get_meta(name)
         } else {
             None
         };
@@ -302,7 +302,30 @@ pub async fn move_to(location: JobLocation) {
     .await
 }
 
-pub async fn spawn_on<F>(location: JobLocation, priority: JobPriority, job: F) -> Option<F::Output>
+pub async fn change_priority(priority: JobPriority) {
+    let mut executed = false;
+    poll_fn(move |cx| {
+        let waker = cx.waker();
+        if executed {
+            waker.wake_by_ref();
+            Poll::Ready(())
+        } else {
+            if let Some(waker) = JobsWaker::try_cast(waker) {
+                waker.command(JobsWakerCommand::ChangePriority(priority));
+            }
+            executed = true;
+            waker.wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await
+}
+
+pub async fn spawn_on<F>(
+    location: JobLocation,
+    priority: JobPriority,
+    job: F,
+) -> JobHandle<F::Output>
 where
     F: Future + Send + Sync + 'static,
     <F as std::future::Future>::Output: std::marker::Send,
@@ -325,6 +348,7 @@ where
                     location: location.clone(),
                     priority,
                     cancel: waker.cancel(),
+                    meta: waker.local_meta(),
                 });
             }
             waker.wake_by_ref();
@@ -335,14 +359,57 @@ where
         }
     })
     .await;
-    result.await
+    result
+}
+
+pub async fn spawn_on_with_meta<F>(
+    location: JobLocation,
+    priority: JobPriority,
+    meta: impl IntoIterator<Item = (String, DynamicManagedLazy)>,
+    job: F,
+) -> JobHandle<F::Output>
+where
+    F: Future + Send + Sync + 'static,
+    <F as std::future::Future>::Output: std::marker::Send,
+{
+    let handle = JobHandle::default().with_meta(meta);
+    let handle2 = handle.clone();
+    let result = handle.clone();
+    let mut job = Some(Job(Box::pin(async move {
+        handle.put(job.await);
+    })));
+    poll_fn(move |cx| {
+        let waker = cx.waker();
+        if let Some(job) = job.take() {
+            if let Some(waker) = JobsWaker::try_cast(waker) {
+                waker.enqueue(JobObject {
+                    job,
+                    context: JobContext {
+                        work_group_index: 0,
+                        work_groups_count: 1,
+                    },
+                    location: location.clone(),
+                    priority,
+                    cancel: waker.cancel(),
+                    meta: handle2.meta.clone(),
+                });
+            }
+            waker.wake_by_ref();
+            Poll::Pending
+        } else {
+            waker.wake_by_ref();
+            Poll::Ready(())
+        }
+    })
+    .await;
+    result
 }
 
 pub async fn queue_on<T: Send + 'static>(
     location: JobLocation,
     priority: JobPriority,
     job: impl FnOnce(JobContext) -> T + Send + Sync + 'static,
-) -> Option<T> {
+) -> JobHandle<T> {
     let handle = JobHandle::default();
     let result = handle.clone();
     let mut job = Some(Job(Box::pin(async move {
@@ -361,6 +428,7 @@ pub async fn queue_on<T: Send + 'static>(
                     location: location.clone(),
                     priority,
                     cancel: waker.cancel(),
+                    meta: waker.local_meta(),
                 });
             }
             waker.wake_by_ref();
@@ -371,7 +439,7 @@ pub async fn queue_on<T: Send + 'static>(
         }
     })
     .await;
-    result.await
+    result
 }
 
 pub async fn on_exit(future: impl Future<Output = ()> + Send + Sync + 'static) -> OnExit {
@@ -390,6 +458,7 @@ pub async fn on_exit(future: impl Future<Output = ()> + Send + Sync + 'static) -
                         location: JobLocation::current_thread(),
                         priority: JobPriority::High,
                         cancel: waker.cancel(),
+                        meta: waker.local_meta(),
                     }),
                     queue: waker.queue(),
                 }

@@ -42,6 +42,7 @@ fn traced_spin_loop() {
 pub struct JobHandle<T: Send + 'static> {
     result: Arc<Mutex<Option<Option<T>>>>,
     cancel: Arc<AtomicBool>,
+    meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
 }
 
 impl<T: Send + 'static> Default for JobHandle<T> {
@@ -49,6 +50,7 @@ impl<T: Send + 'static> Default for JobHandle<T> {
         Self {
             result: Default::default(),
             cancel: Default::default(),
+            meta: Default::default(),
         }
     }
 }
@@ -58,7 +60,18 @@ impl<T: Send + 'static> JobHandle<T> {
         Self {
             result: Arc::new(Mutex::new(Some(Some(value)))),
             cancel: Default::default(),
+            meta: Default::default(),
         }
+    }
+
+    pub(crate) fn with_meta(
+        self,
+        iter: impl IntoIterator<Item = (String, DynamicManagedLazy)>,
+    ) -> Self {
+        if let Ok(mut meta) = self.meta.write() {
+            meta.extend(iter);
+        }
+        self
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -107,8 +120,9 @@ impl<T: Send + 'static> JobHandle<T> {
 impl<T: Send + 'static> Clone for JobHandle<T> {
     fn clone(&self) -> Self {
         Self {
-            result: Arc::clone(&self.result),
-            cancel: Arc::clone(&self.cancel),
+            result: self.result.clone(),
+            cancel: self.cancel.clone(),
+            meta: self.meta.clone(),
         }
     }
 }
@@ -298,6 +312,7 @@ struct JobObject {
     pub location: JobLocation,
     pub priority: JobPriority,
     pub cancel: Arc<AtomicBool>,
+    pub meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
 }
 
 #[derive(Default)]
@@ -365,7 +380,7 @@ impl Worker {
     fn new(
         worker_location: JobLocation,
         queue: Arc<JobQueue>,
-        meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+        global_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
         hash_tokens: Arc<Mutex<HashSet<u64>>>,
         notify: Arc<(Mutex<bool>, Condvar)>,
     ) -> Worker {
@@ -382,14 +397,16 @@ impl Worker {
                         job,
                         context,
                         location,
-                        priority,
+                        mut priority,
                         cancel,
+                        meta,
                     } = object;
                     let (waker, receiver) = JobsWaker::new_waker(
                         queue.clone(),
                         location.clone(),
                         context,
                         priority,
+                        global_meta.clone(),
                         meta.clone(),
                         hash_tokens.clone(),
                         cancel.clone(),
@@ -404,6 +421,9 @@ impl Worker {
                                 JobsWakerCommand::MoveTo(location) => {
                                     move_to = Some(location);
                                 }
+                                JobsWakerCommand::ChangePriority(new_priority) => {
+                                    priority = new_priority;
+                                }
                             }
                         }
                         if let Some(location) = move_to {
@@ -413,6 +433,7 @@ impl Worker {
                                 location,
                                 priority,
                                 cancel,
+                                meta,
                             });
                         } else {
                             queue.enqueue(JobObject {
@@ -421,6 +442,7 @@ impl Worker {
                                 location,
                                 priority,
                                 cancel,
+                                meta,
                             });
                         }
                     }
@@ -463,6 +485,7 @@ impl Worker {
 
 pub(crate) enum JobsWakerCommand {
     MoveTo(JobLocation),
+    ChangePriority(JobPriority),
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -513,7 +536,8 @@ pub(crate) struct JobsWaker {
     location: JobLocation,
     context: JobContext,
     priority: JobPriority,
-    meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+    global_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+    local_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
     hash_tokens: Arc<Mutex<HashSet<u64>>>,
     cancel: Arc<AtomicBool>,
 }
@@ -533,12 +557,14 @@ impl JobsWaker {
         let _ = unsafe { Arc::from_raw(data as *const Self) };
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_waker(
         queue: Arc<JobQueue>,
         location: JobLocation,
         context: JobContext,
         priority: JobPriority,
-        meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+        global_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+        local_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
         hash_tokens: Arc<Mutex<HashSet<u64>>>,
         cancel: Arc<AtomicBool>,
     ) -> (Waker, Receiver<JobsWakerCommand>) {
@@ -549,7 +575,8 @@ impl JobsWaker {
             location,
             context,
             priority,
-            meta,
+            global_meta,
+            local_meta,
             hash_tokens,
             cancel,
         });
@@ -589,9 +616,21 @@ impl JobsWaker {
         self.priority
     }
 
-    pub fn meta(&self, name: &str) -> Option<DynamicManagedLazy> {
-        let meta = self.meta.read().ok()?;
-        meta.get(name).cloned()
+    pub fn get_meta(&self, name: &str) -> Option<DynamicManagedLazy> {
+        self.local_meta
+            .read()
+            .ok()
+            .and_then(|meta| meta.get(name).cloned())
+            .or_else(|| {
+                self.global_meta
+                    .read()
+                    .ok()
+                    .and_then(|meta| meta.get(name).cloned())
+            })
+    }
+
+    pub fn local_meta(&self) -> Arc<RwLock<HashMap<String, DynamicManagedLazy>>> {
+        self.local_meta.clone()
     }
 
     pub fn cancel(&self) -> Arc<AtomicBool> {
@@ -806,8 +845,9 @@ impl Jobs {
                 job,
                 context,
                 location,
-                priority,
+                mut priority,
                 cancel,
+                meta,
             } = object;
             let mut notify_workers = false;
             let (waker, receiver) = JobsWaker::new_waker(
@@ -816,6 +856,7 @@ impl Jobs {
                 context,
                 priority,
                 self.meta.clone(),
+                meta.clone(),
                 self.hash_tokens.clone(),
                 cancel.clone(),
             );
@@ -826,6 +867,9 @@ impl Jobs {
                     notify_workers = true;
                     match command {
                         JobsWakerCommand::MoveTo(location) => move_to = Some(location),
+                        JobsWakerCommand::ChangePriority(new_priority) => {
+                            priority = new_priority;
+                        }
                     }
                 }
                 if let Some(location) = move_to {
@@ -835,6 +879,7 @@ impl Jobs {
                         location,
                         priority,
                         cancel,
+                        meta,
                     });
                 } else {
                     self.queue.enqueue(JobObject {
@@ -843,6 +888,7 @@ impl Jobs {
                         location,
                         priority,
                         cancel,
+                        meta,
                     });
                 }
             }
@@ -883,6 +929,21 @@ impl Jobs {
         self.schedule(location, priority, handle, job)
     }
 
+    pub fn spawn_on_with_meta<T: Send + 'static>(
+        &self,
+        location: JobLocation,
+        priority: JobPriority,
+        meta: impl IntoIterator<Item = (String, DynamicManagedLazy)>,
+        job: impl Future<Output = T> + Send + Sync + 'static,
+    ) -> Result<JobHandle<T>, Box<dyn Error>> {
+        let handle = JobHandle::<T>::default().with_meta(meta);
+        let handle2 = handle.clone();
+        let job = Job(Box::pin(async move {
+            handle2.put(job.await);
+        }));
+        self.schedule(location, priority, handle, job)
+    }
+
     pub fn queue_on<T: Send + 'static>(
         &self,
         location: JobLocation,
@@ -913,6 +974,7 @@ impl Jobs {
             location,
             priority,
             cancel: handle.cancel.clone(),
+            meta: handle.meta.clone(),
         });
         let (lock, cvar) = &*self.notify;
         let mut running = lock.lock().map_err(|error| format!("{}", error))?;
@@ -957,6 +1019,7 @@ impl Jobs {
                         location: JobLocation::other_than_current_thread(),
                         priority: JobPriority::High,
                         cancel: handle.cancel.clone(),
+                        meta: handle.meta.clone(),
                     });
                     handle
                 })
@@ -1312,6 +1375,23 @@ mod tests {
 
         let result = block_on(job).unwrap();
         assert_eq!(result, 42);
+
+        let mut flag = true;
+        let (flag_lazy, _flag_lifetime) = DynamicManagedLazy::make(&mut flag);
+        let job = jobs
+            .spawn_on_with_meta(
+                JobLocation::Unknown,
+                JobPriority::Normal,
+                [("flag".to_owned(), flag_lazy)],
+                async {
+                    let flag = meta::<bool>("flag").await.unwrap();
+                    *flag.read().unwrap()
+                },
+            )
+            .unwrap();
+
+        let result = block_on(job).unwrap();
+        assert!(result);
     }
 
     #[test]
