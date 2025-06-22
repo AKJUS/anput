@@ -910,6 +910,23 @@ impl World {
         }
     }
 
+    pub fn validate_sdir(&self) -> Result<(), ArchetypeError> {
+        for archetype in self.archetypes.iter() {
+            archetype.validate_sdir()?;
+        }
+        Ok(())
+    }
+
+    pub fn is_column_sdir_locked_raw(&self, type_hash: TypeHash) -> bool {
+        self.archetypes
+            .iter()
+            .any(|archetype| archetype.is_column_sdir_locked_raw(type_hash))
+    }
+
+    pub fn is_column_sdir_locked<T: Component>(&self) -> bool {
+        self.is_column_sdir_locked_raw(TypeHash::of::<T>())
+    }
+
     pub fn clear_changes(&mut self) {
         self.added.clear();
         self.removed.clear();

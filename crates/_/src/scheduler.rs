@@ -63,6 +63,7 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
             let mut scoped_jobs = ScopedJobs::new(&self.jobs);
             self.run_node(universe, entity, &visited, &queue, &mut scoped_jobs)?;
         }
+        self.jobs.run_local();
         universe.clear_changes();
         universe.execute_commands::<LOCKING>();
         universe.maintain_plugins();

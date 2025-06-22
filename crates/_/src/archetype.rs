@@ -1089,7 +1089,7 @@ impl Column {
         }
     }
 
-    fn validate_sdir(&self) -> Result<(), ArchetypeError> {
+    pub fn validate_sdir(&self) -> Result<(), ArchetypeError> {
         if self.instances.load(Ordering::Acquire) <= 1 {
             Ok(())
         } else {
@@ -1283,11 +1283,21 @@ impl Archetype {
         }
     }
 
-    pub(crate) fn validate_sdir(&self) -> Result<(), ArchetypeError> {
+    pub fn validate_sdir(&self) -> Result<(), ArchetypeError> {
         for column in self.columns.as_ref() {
             column.validate_sdir()?;
         }
         Ok(())
+    }
+
+    pub fn is_column_sdir_locked_raw(&self, type_hash: TypeHash) -> bool {
+        self.columns
+            .iter()
+            .any(|column| column.info.type_hash == type_hash && column.validate_sdir().is_err())
+    }
+
+    pub fn is_column_sdir_locked<T: Component>(&self) -> bool {
+        self.is_column_sdir_locked_raw(TypeHash::of::<T>())
     }
 
     #[inline]
