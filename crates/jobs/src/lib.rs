@@ -369,6 +369,18 @@ impl JobQueue {
             }
         }
     }
+
+    fn extend(&self, queue: impl IntoIterator<Item = JobObject>) {
+        if let Ok(mut current_queue) = self.queue.write() {
+            for object in queue {
+                if object.priority == JobPriority::High {
+                    current_queue.push_back(object);
+                } else {
+                    current_queue.push_front(object);
+                }
+            }
+        }
+    }
 }
 
 struct Worker {
@@ -941,6 +953,7 @@ impl Jobs {
 
     pub fn run_local_timeout(&self, timeout: Duration) {
         let timer = Instant::now();
+        let mut pending = vec![];
         while let Some(object) = self
             .queue
             .dequeue(&JobLocation::Local, self.workers.is_empty())
@@ -1005,7 +1018,7 @@ impl Jobs {
                     }
                 }
                 if let Some(location) = move_to {
-                    self.queue.enqueue(JobObject {
+                    pending.push(JobObject {
                         id,
                         job,
                         context,
@@ -1015,7 +1028,7 @@ impl Jobs {
                         meta,
                     });
                 } else {
-                    self.queue.enqueue(JobObject {
+                    pending.push(JobObject {
                         id,
                         job,
                         context,
@@ -1037,6 +1050,7 @@ impl Jobs {
                 break;
             }
         }
+        self.queue.extend(pending);
     }
 
     #[inline]

@@ -284,6 +284,40 @@ pub async fn meta_dynamic(name: &str) -> Option<DynamicManagedLazy> {
     .await
 }
 
+pub async fn wait_for_meta<T>(name: &str) -> ManagedLazy<T> {
+    poll_fn(move |cx| {
+        let waker = cx.waker();
+        let result = JobsWaker::try_cast(waker).and_then(|waker| {
+            waker
+                .get_meta(name)
+                .and_then(|lazy| lazy.into_typed::<T>().ok())
+        });
+        if let Some(result) = result {
+            cx.waker().wake_by_ref();
+            Poll::Ready(result)
+        } else {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await
+}
+
+pub async fn wait_for_meta_dynamic(name: &str) -> DynamicManagedLazy {
+    poll_fn(move |cx| {
+        let waker = cx.waker();
+        let result = JobsWaker::try_cast(waker).and_then(|waker| waker.get_meta(name));
+        if let Some(result) = result {
+            cx.waker().wake_by_ref();
+            Poll::Ready(result)
+        } else {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await
+}
+
 pub async fn move_to(location: JobLocation) {
     let mut executed = false;
     poll_fn(move |cx| {
