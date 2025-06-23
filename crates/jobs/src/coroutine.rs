@@ -478,3 +478,16 @@ pub async fn on_exit(future: impl Future<Output = ()> + Send + Sync + 'static) -
     })
     .await
 }
+
+pub async fn diagnostics_user_event(payload: impl ToString) {
+    let payload = payload.to_string();
+    poll_fn(move |cx| {
+        let waker = cx.waker();
+        if let Some(waker) = JobsWaker::try_cast(waker) {
+            waker.diagnostics_user_event(payload.clone());
+        }
+        waker.wake_by_ref();
+        Poll::Ready(())
+    })
+    .await
+}

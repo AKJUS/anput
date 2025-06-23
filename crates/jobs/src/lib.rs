@@ -406,6 +406,7 @@ impl Worker {
                     } = object;
                     let (waker, receiver) = JobsWaker::new_waker(
                         queue.clone(),
+                        id,
                         location.clone(),
                         context,
                         priority,
@@ -413,6 +414,7 @@ impl Worker {
                         meta.clone(),
                         hash_tokens.clone(),
                         cancel.clone(),
+                        diagnostics.clone(),
                     );
                     let mut cx = Context::from_waker(&waker);
                     let mut notify_workers = false;
@@ -563,6 +565,7 @@ impl Drop for JobToken {
 pub(crate) struct JobsWaker {
     sender: Sender<JobsWakerCommand>,
     queue: Arc<JobQueue>,
+    id: ID<Jobs>,
     location: JobLocation,
     context: JobContext,
     priority: JobPriority,
@@ -570,6 +573,7 @@ pub(crate) struct JobsWaker {
     local_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
     hash_tokens: Arc<Mutex<HashSet<u64>>>,
     cancel: Arc<AtomicBool>,
+    diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
 }
 
 impl JobsWaker {
@@ -590,6 +594,7 @@ impl JobsWaker {
     #[allow(clippy::too_many_arguments)]
     pub fn new_waker(
         queue: Arc<JobQueue>,
+        id: ID<Jobs>,
         location: JobLocation,
         context: JobContext,
         priority: JobPriority,
@@ -597,11 +602,13 @@ impl JobsWaker {
         local_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
         hash_tokens: Arc<Mutex<HashSet<u64>>>,
         cancel: Arc<AtomicBool>,
+        diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
     ) -> (Waker, Receiver<JobsWakerCommand>) {
         let (sender, receiver) = std::sync::mpsc::channel();
         let arc = Arc::new(Self {
             sender,
             queue,
+            id,
             location,
             context,
             priority,
@@ -609,6 +616,7 @@ impl JobsWaker {
             local_meta,
             hash_tokens,
             cancel,
+            diagnostics,
         });
         let raw = RawWaker::new(Arc::into_raw(arc) as *const (), &Self::VTABLE);
         (unsafe { Waker::from_raw(raw) }, receiver)
@@ -707,6 +715,20 @@ impl JobsWaker {
         }
         None
     }
+
+    pub fn diagnostics_user_event(&self, payload: String) {
+        if let Some(diagnostics) = self.diagnostics.as_ref() {
+            let _ = diagnostics.send(JobsDiagnosticsEvent::UserEvent {
+                timestamp: SystemTime::now(),
+                id: self.id,
+                location: self.location.clone(),
+                context: self.context,
+                priority: self.priority,
+                thread_id: std::thread::current().id(),
+                payload,
+            });
+        }
+    }
 }
 
 impl Wake for JobsWaker {
@@ -732,6 +754,15 @@ pub enum JobsDiagnosticsEvent {
         thread_id: ThreadId,
         duration: Duration,
         pending: bool,
+    },
+    UserEvent {
+        timestamp: SystemTime,
+        id: ID<Jobs>,
+        location: JobLocation,
+        context: JobContext,
+        priority: JobPriority,
+        thread_id: ThreadId,
+        payload: String,
     },
 }
 
@@ -887,6 +918,11 @@ impl Jobs {
         meta.insert(name.to_string(), value);
     }
 
+    pub fn unset_meta(&self, name: &str) {
+        let mut meta = self.meta.write().unwrap();
+        meta.remove(name);
+    }
+
     pub fn get_meta<T>(&self, name: &str) -> Option<ManagedLazy<T>> {
         let meta = self.meta.read().unwrap();
         meta.get(name)
@@ -921,6 +957,7 @@ impl Jobs {
             let mut notify_workers = false;
             let (waker, receiver) = JobsWaker::new_waker(
                 self.queue.clone(),
+                id,
                 location.clone(),
                 context,
                 priority,
@@ -928,6 +965,7 @@ impl Jobs {
                 meta.clone(),
                 self.hash_tokens.clone(),
                 cancel.clone(),
+                self.diagnostics.clone(),
             );
             let mut cx = Context::from_waker(&waker);
             if let Some(diagnostics) = self.diagnostics.as_ref() {
