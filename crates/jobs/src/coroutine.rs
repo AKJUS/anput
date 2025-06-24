@@ -7,7 +7,7 @@ use std::{
     future::poll_fn,
     hash::Hash,
     pin::Pin,
-    sync::{Arc, Mutex, RwLock, mpsc::Receiver},
+    sync::{Arc, Mutex, RwLock, atomic::Ordering, mpsc::Receiver},
     task::{Context, Poll, Wake},
     thread::Thread,
     time::{Duration, Instant},
@@ -220,6 +220,25 @@ pub async fn priority() -> JobPriority {
     .await
 }
 
+pub async fn suspend() {
+    let mut executed = false;
+    poll_fn(move |cx| {
+        let waker = cx.waker();
+        if executed {
+            waker.wake_by_ref();
+            Poll::Ready(())
+        } else {
+            if let Some(waker) = JobsWaker::try_cast(waker) {
+                waker.suspend.store(true, Ordering::Relaxed);
+            }
+            executed = true;
+            waker.wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await
+}
+
 pub async fn acquire_token<T: Hash>(subject: &T) -> JobToken {
     poll_fn(move |cx| {
         let waker = cx.waker();
@@ -384,6 +403,7 @@ where
                     location: location.clone(),
                     priority,
                     cancel: waker.cancel(),
+                    suspend: waker.suspend(),
                     meta: waker.local_meta(),
                 });
             }
@@ -428,6 +448,7 @@ where
                     location: location.clone(),
                     priority,
                     cancel: waker.cancel(),
+                    suspend: waker.suspend(),
                     meta: handle2.meta.clone(),
                 });
             }
@@ -466,6 +487,7 @@ pub async fn queue_on<T: Send + 'static>(
                     location: location.clone(),
                     priority,
                     cancel: waker.cancel(),
+                    suspend: waker.suspend(),
                     meta: waker.local_meta(),
                 });
             }
@@ -497,6 +519,7 @@ pub async fn on_exit(future: impl Future<Output = ()> + Send + Sync + 'static) -
                         location: JobLocation::current_thread(),
                         priority: JobPriority::High,
                         cancel: waker.cancel(),
+                        suspend: waker.suspend(),
                         meta: waker.local_meta(),
                     }),
                     queue: waker.queue(),

@@ -42,6 +42,7 @@ fn traced_spin_loop() {
 pub struct JobHandle<T: Send + 'static> {
     result: Arc<Mutex<Option<Option<T>>>>,
     cancel: Arc<AtomicBool>,
+    suspend: Arc<AtomicBool>,
     meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
 }
 
@@ -50,6 +51,7 @@ impl<T: Send + 'static> Default for JobHandle<T> {
         Self {
             result: Default::default(),
             cancel: Default::default(),
+            suspend: Default::default(),
             meta: Default::default(),
         }
     }
@@ -60,6 +62,7 @@ impl<T: Send + 'static> JobHandle<T> {
         Self {
             result: Arc::new(Mutex::new(Some(Some(value)))),
             cancel: Default::default(),
+            suspend: Default::default(),
             meta: Default::default(),
         }
     }
@@ -76,6 +79,10 @@ impl<T: Send + 'static> JobHandle<T> {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancel.load(Ordering::Relaxed)
+    }
+
+    pub fn is_suspended(&self) -> bool {
+        self.suspend.load(Ordering::Relaxed)
     }
 
     pub fn is_done(&self) -> bool {
@@ -108,6 +115,15 @@ impl<T: Send + 'static> JobHandle<T> {
         if let Ok(mut result) = self.result.lock() {
             *result = Some(None);
         }
+        self.resume();
+    }
+
+    pub fn suspend(&self) {
+        self.suspend.store(true, Ordering::Relaxed);
+    }
+
+    pub fn resume(&self) {
+        self.suspend.store(false, Ordering::Relaxed);
     }
 
     fn put(&self, value: T) {
@@ -122,6 +138,7 @@ impl<T: Send + 'static> Clone for JobHandle<T> {
         Self {
             result: self.result.clone(),
             cancel: self.cancel.clone(),
+            suspend: self.suspend.clone(),
             meta: self.meta.clone(),
         }
     }
@@ -313,6 +330,7 @@ struct JobObject {
     pub location: JobLocation,
     pub priority: JobPriority,
     pub cancel: Arc<AtomicBool>,
+    pub suspend: Arc<AtomicBool>,
     pub meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
 }
 
@@ -403,6 +421,7 @@ impl Worker {
         let terminate2 = terminate.clone();
         let worker_location2 = worker_location.clone();
         let thread = spawn(move || {
+            let mut pending = vec![];
             loop {
                 if terminate2.load(Ordering::Relaxed) {
                     return;
@@ -415,48 +434,56 @@ impl Worker {
                         location,
                         mut priority,
                         cancel,
+                        suspend,
                         meta,
                     } = object;
-                    let (waker, receiver) = JobsWaker::new_waker(
-                        queue.clone(),
-                        id,
-                        location.clone(),
-                        context,
-                        priority,
-                        global_meta.clone(),
-                        worker_meta.clone(),
-                        meta.clone(),
-                        hash_tokens.clone(),
-                        cancel.clone(),
-                        diagnostics.clone(),
-                    );
-                    let mut cx = Context::from_waker(&waker);
                     let mut notify_workers = false;
-                    let poll_timer = Instant::now();
-                    if let Some(diagnostics) = diagnostics.as_ref() {
-                        let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollBegin {
-                            timestamp: SystemTime::now(),
+                    let (poll_result, receiver) = if suspend.load(Ordering::Relaxed) {
+                        let (_, rx) = std::sync::mpsc::channel();
+                        (Some(job), rx)
+                    } else {
+                        let (waker, receiver) = JobsWaker::new_waker(
+                            queue.clone(),
                             id,
-                            location: location.clone(),
+                            location.clone(),
                             context,
                             priority,
-                            thread_id: std::thread::current().id(),
-                        });
-                    }
-                    let poll_result = job.poll(&mut cx);
-                    let duration = poll_timer.elapsed();
-                    if let Some(diagnostics) = diagnostics.as_ref() {
-                        let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollEnd {
-                            timestamp: SystemTime::now(),
-                            id,
-                            location: location.clone(),
-                            context,
-                            priority,
-                            thread_id: std::thread::current().id(),
-                            duration,
-                            pending: poll_result.is_some(),
-                        });
-                    }
+                            global_meta.clone(),
+                            worker_meta.clone(),
+                            meta.clone(),
+                            hash_tokens.clone(),
+                            cancel.clone(),
+                            suspend.clone(),
+                            diagnostics.clone(),
+                        );
+                        let mut cx = Context::from_waker(&waker);
+                        let poll_timer = Instant::now();
+                        if let Some(diagnostics) = diagnostics.as_ref() {
+                            let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollBegin {
+                                timestamp: SystemTime::now(),
+                                id,
+                                location: location.clone(),
+                                context,
+                                priority,
+                                thread_id: std::thread::current().id(),
+                            });
+                        }
+                        let poll_result = job.poll(&mut cx);
+                        let duration = poll_timer.elapsed();
+                        if let Some(diagnostics) = diagnostics.as_ref() {
+                            let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollEnd {
+                                timestamp: SystemTime::now(),
+                                id,
+                                location: location.clone(),
+                                context,
+                                priority,
+                                thread_id: std::thread::current().id(),
+                                duration,
+                                pending: poll_result.is_some(),
+                            });
+                        }
+                        (poll_result, receiver)
+                    };
                     if let Some(job) = poll_result {
                         let mut move_to = None;
                         for command in receiver.try_iter() {
@@ -471,23 +498,25 @@ impl Worker {
                             }
                         }
                         if let Some(location) = move_to {
-                            queue.enqueue(JobObject {
+                            pending.push(JobObject {
                                 id,
                                 job,
                                 context,
                                 location,
                                 priority,
                                 cancel,
+                                suspend,
                                 meta,
                             });
                         } else {
-                            queue.enqueue(JobObject {
+                            pending.push(JobObject {
                                 id,
                                 job,
                                 context,
                                 location,
                                 priority,
                                 cancel,
+                                suspend,
                                 meta,
                             });
                         }
@@ -503,6 +532,7 @@ impl Worker {
                         cvar.notify_all();
                     }
                 }
+                queue.extend(pending.drain(..));
                 if !queue.is_empty() {
                     continue;
                 }
@@ -588,6 +618,7 @@ pub(crate) struct JobsWaker {
     local_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
     hash_tokens: Arc<Mutex<HashSet<u64>>>,
     cancel: Arc<AtomicBool>,
+    suspend: Arc<AtomicBool>,
     diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
 }
 
@@ -618,6 +649,7 @@ impl JobsWaker {
         local_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
         hash_tokens: Arc<Mutex<HashSet<u64>>>,
         cancel: Arc<AtomicBool>,
+        suspend: Arc<AtomicBool>,
         diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
     ) -> (Waker, Receiver<JobsWakerCommand>) {
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -633,6 +665,7 @@ impl JobsWaker {
             local_meta,
             hash_tokens,
             cancel,
+            suspend,
             diagnostics,
         });
         let raw = RawWaker::new(Arc::into_raw(arc) as *const (), &Self::VTABLE);
@@ -696,6 +729,10 @@ impl JobsWaker {
 
     pub fn cancel(&self) -> Arc<AtomicBool> {
         self.cancel.clone()
+    }
+
+    pub fn suspend(&self) -> Arc<AtomicBool> {
+        self.suspend.clone()
     }
 
     pub fn acquire_token<T: Hash>(&self, subject: &T) -> Option<JobToken> {
@@ -1019,48 +1056,56 @@ impl Jobs {
                 location,
                 mut priority,
                 cancel,
+                suspend,
                 meta,
             } = object;
             let mut notify_workers = false;
-            let (waker, receiver) = JobsWaker::new_waker(
-                self.queue.clone(),
-                id,
-                location.clone(),
-                context,
-                priority,
-                self.meta.clone(),
-                worker_meta.clone(),
-                meta.clone(),
-                self.hash_tokens.clone(),
-                cancel.clone(),
-                self.diagnostics.clone(),
-            );
-            let mut cx = Context::from_waker(&waker);
-            if let Some(diagnostics) = self.diagnostics.as_ref() {
-                let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollBegin {
-                    timestamp: SystemTime::now(),
+            let (poll_result, receiver) = if suspend.load(Ordering::Relaxed) {
+                let (_, rx) = std::sync::mpsc::channel();
+                (Some(job), rx)
+            } else {
+                let (waker, receiver) = JobsWaker::new_waker(
+                    self.queue.clone(),
                     id,
-                    location: location.clone(),
+                    location.clone(),
                     context,
                     priority,
-                    thread_id: std::thread::current().id(),
-                });
-            }
-            let poll_timer = Instant::now();
-            let poll_result = job.poll(&mut cx);
-            let duration = poll_timer.elapsed();
-            if let Some(diagnostics) = self.diagnostics.as_ref() {
-                let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollEnd {
-                    timestamp: SystemTime::now(),
-                    id,
-                    location: location.clone(),
-                    context,
-                    priority,
-                    thread_id: std::thread::current().id(),
-                    duration,
-                    pending: poll_result.is_some(),
-                });
-            }
+                    self.meta.clone(),
+                    worker_meta.clone(),
+                    meta.clone(),
+                    self.hash_tokens.clone(),
+                    cancel.clone(),
+                    suspend.clone(),
+                    self.diagnostics.clone(),
+                );
+                let mut cx = Context::from_waker(&waker);
+                if let Some(diagnostics) = self.diagnostics.as_ref() {
+                    let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollBegin {
+                        timestamp: SystemTime::now(),
+                        id,
+                        location: location.clone(),
+                        context,
+                        priority,
+                        thread_id: std::thread::current().id(),
+                    });
+                }
+                let poll_timer = Instant::now();
+                let poll_result = job.poll(&mut cx);
+                let duration = poll_timer.elapsed();
+                if let Some(diagnostics) = self.diagnostics.as_ref() {
+                    let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollEnd {
+                        timestamp: SystemTime::now(),
+                        id,
+                        location: location.clone(),
+                        context,
+                        priority,
+                        thread_id: std::thread::current().id(),
+                        duration,
+                        pending: poll_result.is_some(),
+                    });
+                }
+                (poll_result, receiver)
+            };
             if let Some(job) = poll_result {
                 let mut move_to = None;
                 for command in receiver.try_iter() {
@@ -1080,6 +1125,7 @@ impl Jobs {
                         location,
                         priority,
                         cancel,
+                        suspend,
                         meta,
                     });
                 } else {
@@ -1090,6 +1136,7 @@ impl Jobs {
                         location,
                         priority,
                         cancel,
+                        suspend,
                         meta,
                     });
                 }
@@ -1178,6 +1225,7 @@ impl Jobs {
             location,
             priority,
             cancel: handle.cancel.clone(),
+            suspend: handle.suspend.clone(),
             meta: handle.meta.clone(),
         });
         let (lock, cvar) = &*self.notify;
@@ -1224,6 +1272,7 @@ impl Jobs {
                         location: JobLocation::other_than_current_thread(),
                         priority: JobPriority::High,
                         cancel: handle.cancel.clone(),
+                        suspend: handle.suspend.clone(),
                         meta: handle.meta.clone(),
                     });
                     handle
@@ -1334,8 +1383,8 @@ impl<'env, T: Send + 'static> ScopedJobs<'env, T> {
 mod tests {
     use super::*;
     use crate::coroutine::{
-        acquire_token, block_on, location, meta, move_to, on_exit, queue_on, spawn_on, with_all,
-        with_any, yield_now,
+        acquire_token, block_on, location, meta, move_to, on_exit, queue_on, spawn_on, suspend,
+        with_all, with_any, yield_now,
     };
     use std::sync::atomic::AtomicUsize;
 
@@ -1735,5 +1784,30 @@ mod tests {
         }
         assert_eq!(job.try_take(), Some(None));
         assert!(!state.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_futures_suspend() {
+        let jobs = Jobs::default();
+
+        let job = jobs
+            .spawn_on(JobLocation::Local, JobPriority::Normal, async {
+                suspend().await;
+                42
+            })
+            .unwrap();
+
+        assert!(!job.is_done());
+        for _ in 0..10 {
+            jobs.run_local();
+        }
+        assert!(!job.is_done());
+
+        job.resume();
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.try_take().unwrap().unwrap();
+        assert_eq!(result, 42);
     }
 }
