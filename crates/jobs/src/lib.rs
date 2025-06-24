@@ -394,6 +394,7 @@ impl Worker {
         worker_location: JobLocation,
         queue: Arc<JobQueue>,
         global_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+        worker_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
         hash_tokens: Arc<Mutex<HashSet<u64>>>,
         notify: Arc<(Mutex<bool>, Condvar)>,
         diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
@@ -423,6 +424,7 @@ impl Worker {
                         context,
                         priority,
                         global_meta.clone(),
+                        worker_meta.clone(),
                         meta.clone(),
                         hash_tokens.clone(),
                         cancel.clone(),
@@ -582,6 +584,7 @@ pub(crate) struct JobsWaker {
     context: JobContext,
     priority: JobPriority,
     global_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+    worker_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
     local_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
     hash_tokens: Arc<Mutex<HashSet<u64>>>,
     cancel: Arc<AtomicBool>,
@@ -611,6 +614,7 @@ impl JobsWaker {
         context: JobContext,
         priority: JobPriority,
         global_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
+        worker_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
         local_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
         hash_tokens: Arc<Mutex<HashSet<u64>>>,
         cancel: Arc<AtomicBool>,
@@ -625,6 +629,7 @@ impl JobsWaker {
             context,
             priority,
             global_meta,
+            worker_meta,
             local_meta,
             hash_tokens,
             cancel,
@@ -672,10 +677,16 @@ impl JobsWaker {
             .ok()
             .and_then(|meta| meta.get(name).cloned())
             .or_else(|| {
-                self.global_meta
+                self.worker_meta
                     .read()
                     .ok()
                     .and_then(|meta| meta.get(name).cloned())
+                    .or_else(|| {
+                        self.global_meta
+                            .read()
+                            .ok()
+                            .and_then(|meta| meta.get(name).cloned())
+                    })
             })
     }
 
@@ -832,7 +843,8 @@ impl Jobs {
     fn new_inner(count: usize, diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>) -> Jobs {
         let queue = Arc::new(JobQueue::default());
         let notify = Arc::new((Mutex::default(), Condvar::new()));
-        let meta = Arc::new(RwLock::new(HashMap::default()));
+        let global_meta = Arc::new(RwLock::new(HashMap::default()));
+        let worker_meta = Arc::new(RwLock::new(HashMap::default()));
         let hash_tokens = Arc::new(Mutex::new(HashSet::default()));
         Jobs {
             workers: (0..count)
@@ -840,7 +852,8 @@ impl Jobs {
                     Worker::new(
                         JobLocation::UnnamedWorker,
                         queue.clone(),
-                        meta.clone(),
+                        global_meta.clone(),
+                        worker_meta.clone(),
                         hash_tokens.clone(),
                         notify.clone(),
                         None,
@@ -848,7 +861,7 @@ impl Jobs {
                 })
                 .collect(),
             queue,
-            meta,
+            meta: global_meta,
             hash_tokens,
             notify,
             diagnostics,
@@ -866,10 +879,18 @@ impl Jobs {
     }
 
     pub fn add_unnamed_worker(&mut self) {
+        self.add_unnamed_worker_with_meta([]);
+    }
+
+    pub fn add_unnamed_worker_with_meta(
+        &mut self,
+        meta: impl IntoIterator<Item = (String, DynamicManagedLazy)>,
+    ) {
         self.workers.push(Worker::new(
             JobLocation::UnnamedWorker,
             self.queue.clone(),
             self.meta.clone(),
+            Arc::new(RwLock::new(meta.into_iter().collect::<HashMap<_, _>>())),
             self.hash_tokens.clone(),
             self.notify.clone(),
             self.diagnostics.clone(),
@@ -877,10 +898,19 @@ impl Jobs {
     }
 
     pub fn add_named_worker(&mut self, name: impl ToString) {
+        self.add_named_worker_with_meta(name, []);
+    }
+
+    pub fn add_named_worker_with_meta(
+        &mut self,
+        name: impl ToString,
+        meta: impl IntoIterator<Item = (String, DynamicManagedLazy)>,
+    ) {
         self.workers.push(Worker::new(
             JobLocation::named_worker(name),
             self.queue.clone(),
             self.meta.clone(),
+            Arc::new(RwLock::new(meta.into_iter().collect::<HashMap<_, _>>())),
             self.hash_tokens.clone(),
             self.notify.clone(),
             self.diagnostics.clone(),
@@ -948,12 +978,36 @@ impl Jobs {
     }
 
     pub fn run_local(&self) {
-        self.run_local_timeout(Duration::MAX);
+        self.run_local_inner(Duration::MAX, []);
+    }
+
+    pub fn run_local_with_meta(
+        &self,
+        meta: impl IntoIterator<Item = (String, DynamicManagedLazy)>,
+    ) {
+        self.run_local_inner(Duration::MAX, meta);
     }
 
     pub fn run_local_timeout(&self, timeout: Duration) {
+        self.run_local_inner(timeout, []);
+    }
+
+    pub fn run_local_timeout_with_meta(
+        &self,
+        timeout: Duration,
+        meta: impl IntoIterator<Item = (String, DynamicManagedLazy)>,
+    ) {
+        self.run_local_inner(timeout, meta);
+    }
+
+    fn run_local_inner(
+        &self,
+        timeout: Duration,
+        meta: impl IntoIterator<Item = (String, DynamicManagedLazy)>,
+    ) {
         let timer = Instant::now();
         let mut pending = vec![];
+        let worker_meta = Arc::new(RwLock::new(meta.into_iter().collect::<HashMap<_, _>>()));
         while let Some(object) = self
             .queue
             .dequeue(&JobLocation::Local, self.workers.is_empty())
@@ -975,6 +1029,7 @@ impl Jobs {
                 context,
                 priority,
                 self.meta.clone(),
+                worker_meta.clone(),
                 meta.clone(),
                 self.hash_tokens.clone(),
                 cancel.clone(),
@@ -1541,6 +1596,21 @@ mod tests {
             .unwrap();
 
         let result = block_on(job).unwrap();
+        assert!(result);
+
+        let mut flag = true;
+        let (flag_lazy, _flag_lifetime) = DynamicManagedLazy::make(&mut flag);
+        let job = jobs
+            .spawn_on(JobLocation::Local, JobPriority::Normal, async {
+                let flag = meta::<bool>("flag").await.unwrap();
+                *flag.read().unwrap()
+            })
+            .unwrap();
+
+        while !job.is_done() {
+            jobs.run_local_with_meta([("flag".to_owned(), flag_lazy.clone())]);
+        }
+        let result = job.try_take().unwrap().unwrap();
         assert!(result);
     }
 
