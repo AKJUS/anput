@@ -1439,6 +1439,111 @@ mod tests {
     }
 
     #[test]
+    fn test_local_thread_only_jobs() {
+        let jobs = Jobs::new(0);
+        let data = (0..100).collect::<Vec<_>>();
+        let data2 = data.clone();
+        let data3 = data.clone();
+        let data4 = data.clone();
+        let data5 = data.clone();
+        let data6 = data.clone();
+
+        let job = jobs
+            .queue_on(JobLocation::Unknown, JobPriority::Normal, move |_| {
+                data.into_iter().sum::<usize>()
+            })
+            .unwrap();
+
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.try_take().unwrap().unwrap();
+        assert_eq!(result, 4950);
+
+        let job = jobs
+            .queue_on(JobLocation::Local, JobPriority::Normal, move |_| {
+                data2.into_iter().sum::<usize>()
+            })
+            .unwrap();
+
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.try_take().unwrap().unwrap();
+        assert_eq!(result, 4950);
+
+        let job = jobs
+            .queue_on(JobLocation::UnnamedWorker, JobPriority::Normal, move |_| {
+                data3.into_iter().sum::<usize>()
+            })
+            .unwrap();
+
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.try_take().unwrap().unwrap();
+        assert_eq!(result, 4950);
+
+        let job = jobs
+            .queue_on(
+                JobLocation::named_worker("temp"),
+                JobPriority::Normal,
+                move |_| data4.into_iter().sum::<usize>(),
+            )
+            .unwrap();
+
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.try_take().unwrap().unwrap();
+        assert_eq!(result, 4950);
+
+        let job = jobs
+            .queue_on(
+                JobLocation::current_thread(),
+                JobPriority::Normal,
+                move |_| data5.into_iter().sum::<usize>(),
+            )
+            .unwrap();
+
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.try_take().unwrap().unwrap();
+        assert_eq!(result, 4950);
+
+        let job = jobs
+            .queue_on(
+                JobLocation::other_than_current_thread(),
+                JobPriority::Normal,
+                move |_| data6.into_iter().sum::<usize>(),
+            )
+            .unwrap();
+
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.try_take().unwrap().unwrap();
+        assert_eq!(result, 4950);
+
+        let job = jobs.broadcast(move |_| 1).unwrap();
+
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.wait().unwrap().into_iter().sum::<usize>();
+        assert_eq!(result, 1);
+
+        let job = jobs.broadcast_n(10, move |_| 1).unwrap();
+
+        while !job.is_done() {
+            jobs.run_local();
+        }
+        let result = job.wait().unwrap().into_iter().sum::<usize>();
+        assert_eq!(result, 1);
+    }
+
+    #[test]
     fn test_scoped_jobs() {
         let jobs = Jobs::default();
         let mut data = (0..100).collect::<Vec<_>>();
