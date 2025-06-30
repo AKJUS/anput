@@ -3,8 +3,7 @@ use crate::{
     component::Component,
 };
 use intuicio_core::object::{DynamicObject, TypedDynamicObject};
-use intuicio_data::{managed::DynamicManaged, type_hash::TypeHash};
-use std::alloc::dealloc;
+use intuicio_data::{managed::DynamicManaged, non_zero_dealloc, type_hash::TypeHash};
 
 #[derive(Default)]
 pub struct DynamicBundle {
@@ -195,7 +194,7 @@ impl Bundle for DynamicObject {
                 let (handle, source_memory) = object.into_inner();
                 let target_memory = access.data(handle.type_hash()).unwrap();
                 target_memory.copy_from(source_memory, handle.layout().size());
-                dealloc(source_memory, *handle.layout());
+                non_zero_dealloc(source_memory, *handle.layout());
             }
         }
     }
@@ -208,7 +207,7 @@ impl Bundle for TypedDynamicObject {
                 let (handle, source_memory) = object.into_inner();
                 let target_memory = access.data(handle.type_hash()).unwrap();
                 target_memory.copy_from(source_memory, handle.layout().size());
-                dealloc(source_memory, *handle.layout());
+                non_zero_dealloc(source_memory, *handle.layout());
             }
         }
     }
@@ -221,7 +220,7 @@ impl Bundle for DynamicBundle {
                 let (type_hash, _, source_memory, layout, _) = component.into_inner();
                 let target_memory = access.data(type_hash).unwrap();
                 target_memory.copy_from(source_memory, layout.size());
-                dealloc(source_memory, layout);
+                non_zero_dealloc(source_memory, layout);
             }
         }
     }

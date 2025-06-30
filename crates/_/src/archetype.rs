@@ -4,9 +4,9 @@ use crate::{
     entity::{Entity, EntityDenseMap},
 };
 use intuicio_core::types::Type;
-use intuicio_data::{Finalize, type_hash::TypeHash};
+use intuicio_data::{Finalize, non_zero_alloc, non_zero_dealloc, type_hash::TypeHash};
 use std::{
-    alloc::{Layout, alloc, dealloc},
+    alloc::Layout,
     error::Error,
     marker::PhantomData,
     sync::{
@@ -1057,7 +1057,7 @@ impl Drop for Column {
                 traced_spin_loop();
             }
             unsafe {
-                dealloc(self.memory, self.layout);
+                non_zero_dealloc(self.memory, self.layout);
             }
         }
     }
@@ -1102,24 +1102,17 @@ impl Column {
     unsafe fn reallocate(&mut self, size: usize, capacity: usize) {
         let (memory, layout) = unsafe { Self::allocate_memory(self.info.layout, capacity) };
         unsafe { self.memory.copy_to(memory, self.info.layout.size() * size) };
-        unsafe { dealloc(self.memory, self.layout) };
+        unsafe { non_zero_dealloc(self.memory, self.layout) };
         self.memory = memory;
         self.layout = layout;
     }
 
     unsafe fn allocate_memory(mut item_layout: Layout, capacity: usize) -> (*mut u8, Layout) {
         item_layout = item_layout.pad_to_align();
-        let layout = if item_layout.size() == 0 {
-            unsafe { Layout::from_size_align_unchecked(1, 1) }
-        } else {
-            unsafe {
-                Layout::from_size_align_unchecked(
-                    item_layout.size() * capacity,
-                    item_layout.align(),
-                )
-            }
+        let layout = unsafe {
+            Layout::from_size_align_unchecked(item_layout.size() * capacity, item_layout.align())
         };
-        let memory = unsafe { alloc(layout) };
+        let memory = unsafe { non_zero_alloc(layout) };
         (memory, layout)
     }
 
