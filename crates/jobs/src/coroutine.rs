@@ -141,14 +141,16 @@ pub async fn with_all<T>(
     mut futures: Vec<Pin<Box<dyn Future<Output = T> + Send + Sync>>>,
 ) -> Vec<T> {
     let mut results = Vec::with_capacity(futures.len());
+    let count = futures.len();
     poll_fn(move |cx| {
-        for future in &mut futures {
-            match future.as_mut().poll(cx) {
-                Poll::Ready(output) => results.push(output),
-                Poll::Pending => {}
+        futures.retain_mut(|future| match future.as_mut().poll(cx) {
+            Poll::Ready(output) => {
+                results.push(output);
+                false
             }
-        }
-        if results.len() == futures.len() {
+            Poll::Pending => true,
+        });
+        if results.len() == count {
             cx.waker().wake_by_ref();
             Poll::Ready(std::mem::take(&mut results))
         } else {

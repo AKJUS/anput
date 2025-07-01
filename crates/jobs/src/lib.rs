@@ -1384,7 +1384,7 @@ mod tests {
     use super::*;
     use crate::coroutine::{
         acquire_token, block_on, location, meta, move_to, on_exit, queue_on, spawn_on, suspend,
-        with_all, with_any, yield_now,
+        wait_polls, wait_time, with_all, with_any, yield_now,
     };
     use std::sync::atomic::AtomicUsize;
 
@@ -1606,9 +1606,11 @@ mod tests {
                 let result2 = result.clone();
                 with_all(vec![
                     Box::pin(async move {
+                        wait_time(Duration::from_millis(10)).await;
                         result1.fetch_add(1, Ordering::SeqCst);
                     }),
                     Box::pin(async move {
+                        wait_time(Duration::from_millis(5)).await;
                         result2.fetch_add(2, Ordering::SeqCst);
                     }),
                 ])
@@ -1626,9 +1628,11 @@ mod tests {
                 let result2 = result.clone();
                 with_any(vec![
                     Box::pin(async move {
+                        wait_polls(10).await;
                         result1.store(1, Ordering::SeqCst);
                     }),
                     Box::pin(async move {
+                        wait_polls(5).await;
                         result2.store(2, Ordering::SeqCst);
                     }),
                 ])
