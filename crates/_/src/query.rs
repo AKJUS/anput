@@ -640,7 +640,7 @@ impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Ex
     }
 
     fn fetch(access: &mut Self::Access, entity: Entity) -> Option<Self::Value> {
-        if !access.contains(entity) {
+        if access.contains(entity) {
             Some(())
         } else {
             None

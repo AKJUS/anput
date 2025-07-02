@@ -1891,12 +1891,19 @@ mod tests {
                 entities.push(entity);
             }
         }
+        assert_eq!(entities.len(), N / 2);
 
         let compare_entities = world
             .lookup::<true, (Entity, &u8)>(entities.iter().copied())
             .map(|(entity, _)| entity)
             .collect::<Vec<_>>();
         assert_eq!(compare_entities, entities);
+
+        let mut lookup = world.lookup_access::<true, Exclude<f32>>();
+        for entity in entities.iter().copied() {
+            assert!(lookup.access(entity).is_some());
+        }
+        drop(lookup);
 
         let mut lookup = world.lookup_access::<true, (Entity, &u8)>();
         for entity in entities.iter().copied() {
