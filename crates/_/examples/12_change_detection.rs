@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut scheduler = GraphScheduler::<true>::default();
 
     for index in 0..10 {
-        println!("* Iteration: {}", index);
+        println!("* Iteration: {index}");
         scheduler.run(&mut universe)?;
     }
 
@@ -72,17 +72,17 @@ fn stats_react(context: SystemContext) -> Result<(), Box<dyn Error>> {
     let (world, mut stats) = context.fetch::<(&World, Res<true, &mut Stats>)>()?;
 
     for entity in world.added().iter_of::<MonsterEvolution>() {
-        println!("Monster created: {}", entity);
+        println!("Monster created: {entity}");
         stats.created += 1;
     }
 
     for entity in world.updated().unwrap().iter_of::<MonsterEvolution>() {
-        println!("Monster updated: {}", entity);
+        println!("Monster updated: {entity}");
         stats.updated += 1;
     }
 
     for entity in world.removed().iter_of::<MonsterEvolution>() {
-        println!("Monster destroyed: {}", entity);
+        println!("Monster destroyed: {entity}");
         stats.destroyed += 1;
     }
 

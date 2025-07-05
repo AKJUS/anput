@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .resources
                 .get_mut::<true, CommandBuffer>()?
                 .command(DespawnCommand::new(entity));
-            println!("Entity {} is dead!", entity);
+            println!("Entity {entity} is dead!");
         }
     }
     universe

@@ -106,8 +106,7 @@ fn report_world_state(context: SystemContext) -> Result<(), Box<dyn Error>> {
 
     for (chunk, monster, animal, health, strength) in query.query(world) {
         println!(
-            "Chunk: {:?} | Monster: {:?} | Animal: {:?} | Health: {:?} | Strength: {:?}",
-            chunk, monster, animal, health, strength
+            "Chunk: {chunk:?} | Monster: {monster:?} | Animal: {animal:?} | Health: {health:?} | Strength: {strength:?}"
         );
     }
 

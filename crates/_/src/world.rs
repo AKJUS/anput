@@ -87,17 +87,17 @@ impl From<ArchetypeError> for WorldError {
 impl std::fmt::Display for WorldError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Archetype(archetype) => write!(f, "World archetype: {}", archetype),
+            Self::Archetype(archetype) => write!(f, "World archetype: {archetype}"),
             Self::ReachedEntityIdCapacity => write!(f, "Reached entity id capacity"),
             Self::ReachedArchetypeIdCapacity => write!(f, "Reached archetype id capacity"),
             Self::EntityDoesNotExists { entity } => {
-                write!(f, "Entity does not exists: {}", entity)
+                write!(f, "Entity does not exists: {entity}")
             }
             Self::ArchetypeDoesNotExists { id } => {
-                write!(f, "Archetype does not exists: {}", id)
+                write!(f, "Archetype does not exists: {id}")
             }
             Self::DuplicateMutableArchetypeAccess { id } => {
-                write!(f, "Trying to access mutably same archetype twice: {}", id)
+                write!(f, "Trying to access mutably same archetype twice: {id}")
             }
             Self::EmptyColumnSet => {
                 write!(f, "Trying to perform change on empty column set")

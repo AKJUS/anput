@@ -1229,7 +1229,7 @@ impl Jobs {
             meta: handle.meta.clone(),
         });
         let (lock, cvar) = &*self.notify;
-        let mut running = lock.lock().map_err(|error| format!("{}", error))?;
+        let mut running = lock.lock().map_err(|error| format!("{error}"))?;
         *running = true;
         cvar.notify_all();
         Ok(handle)
@@ -1280,7 +1280,7 @@ impl Jobs {
                 .collect::<Vec<_>>(),
         };
         let (lock, cvar) = &*self.notify;
-        let mut running = lock.lock().map_err(|error| format!("{}", error))?;
+        let mut running = lock.lock().map_err(|error| format!("{error}"))?;
         *running = true;
         cvar.notify_all();
         Ok(handle)
@@ -1781,7 +1781,7 @@ mod tests {
                 let _token = acquire_token(&"foo").await;
                 std::thread::sleep(Duration::from_millis(50));
                 for i in 0..10 {
-                    println!("{}", i);
+                    println!("{i}");
                     std::thread::sleep(Duration::from_millis(10));
                 }
             })
@@ -1791,7 +1791,7 @@ mod tests {
                 let _token = acquire_token(&"foo").await;
                 std::thread::sleep(Duration::from_millis(50));
                 for i in 10..20 {
-                    println!("{}", i);
+                    println!("{i}");
                     std::thread::sleep(Duration::from_millis(10));
                 }
             })

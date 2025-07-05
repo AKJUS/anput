@@ -93,7 +93,7 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
         for entity in entities {
             if visited.contains(&entity) {
                 return Err(
-                    format!("Found systems graph cycle for system entity: {}", entity).into(),
+                    format!("Found systems graph cycle for system entity: {entity}").into(),
                 );
             }
             visited.insert(entity);
@@ -140,7 +140,7 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
                 if system.should_run(SystemContext::new(universe, entity)) {
                     system
                         .run(SystemContext::new(universe, entity))
-                        .map_err(|error| format!("{}", error))?;
+                        .map_err(|error| format!("{error}"))?;
                 }
             }
             self.run_group(
@@ -152,7 +152,7 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
                 visited,
                 queue,
             )
-            .map_err(|error| format!("{}", error))?;
+            .map_err(|error| format!("{error}"))?;
             Ok(())
         };
         if let Ok(parallelize) = universe

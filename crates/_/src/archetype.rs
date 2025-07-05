@@ -64,35 +64,32 @@ impl std::fmt::Display for ArchetypeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ColumnAlreadyUniquelyAccessed { type_hash } => {
-                write!(f, "Column is already uniquelly accessed: {:?}", type_hash)
+                write!(f, "Column is already uniquelly accessed: {type_hash:?}")
             }
-            Self::ColumnNotFound { type_hash } => write!(f, "Column not found: {:?}", type_hash),
+            Self::ColumnNotFound { type_hash } => write!(f, "Column not found: {type_hash:?}"),
             Self::ColumnTypeIsDuplicated {
                 type_hash,
                 index,
                 duplicate_index,
             } => write!(
                 f,
-                "Column type: {:?} at index: {} has duplicate at index: {}",
-                type_hash, index, duplicate_index
+                "Column type: {type_hash:?} at index: {index} has duplicate at index: {duplicate_index}"
             ),
             Self::ColumnTypeMismatch { provided, expected } => write!(
                 f,
-                "Provided column: {:?} does not match expected: {:?}",
-                provided, expected
+                "Provided column: {provided:?} does not match expected: {expected:?}"
             ),
-            Self::IndexNotFound { index } => write!(f, "Entity index not found: {}", index),
+            Self::IndexNotFound { index } => write!(f, "Entity index not found: {index}"),
             Self::IndexAlreadyOccupied { index } => {
-                write!(f, "Entity index already occupied: {}", index)
+                write!(f, "Entity index already occupied: {index}")
             }
-            Self::EntityNotFound { entity } => write!(f, "Entity not found: {}", entity),
+            Self::EntityNotFound { entity } => write!(f, "Entity not found: {entity}"),
             Self::EntityAlreadyOccupied { entity } => {
-                write!(f, "Entity already occupied: {}", entity)
+                write!(f, "Entity already occupied: {entity}")
             }
             Self::ColumnSdirLocked { type_hash } => write!(
                 f,
-                "Column: {:?} is locked for Spawn/Despawn/Insert/Remove operations",
-                type_hash
+                "Column: {type_hash:?} is locked for Spawn/Despawn/Insert/Remove operations"
             ),
         }
     }

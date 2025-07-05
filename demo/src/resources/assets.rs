@@ -56,7 +56,7 @@ impl<T> Assets<T> {
             }
         }
         let buffer = std::fs::read(&path)
-            .inspect_err(|_| println!("Could not load asset file: {:?}", path))?;
+            .inspect_err(|_| println!("Could not load asset file: {path:?}"))?;
         let result = self.factory.decode(&buffer)?;
         self.registry.insert(path, Arc::downgrade(&result));
         Ok(result)

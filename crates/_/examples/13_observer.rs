@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     for index in 0..10 {
-        println!("* Iteration: {}", index);
+        println!("* Iteration: {index}");
         scheduler.run(&mut universe)?;
         observer.process_execute(&mut universe.simulation);
 

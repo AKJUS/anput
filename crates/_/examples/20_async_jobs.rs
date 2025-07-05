@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Present job results.
     if let Some(found) = result.into_iter().flatten().next() {
-        println!("* Found cycle in graph: {:#?}", found);
+        println!("* Found cycle in graph: {found:#?}");
     } else {
         println!("* There is no cycle in graph!");
     }
@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
     let result = block_on(job).unwrap_or_default();
 
-    println!("Are entities {} and {} connected: {}", from, to, result);
+    println!("Are entities {from} and {to} connected: {result}");
 
     Ok(())
 }

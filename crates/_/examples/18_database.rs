@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .simulation
         .query::<true, (&&str, Include<Monster>)>()
     {
-        println!("Monster still alive: {:?}", name);
+        println!("Monster still alive: {name:?}");
     }
 
     Ok(())

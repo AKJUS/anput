@@ -34,12 +34,12 @@ impl From<ArchetypeError> for QueryError {
 impl std::fmt::Display for QueryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Archetype(archetype) => write!(f, "World archetype: {}", archetype),
+            Self::Archetype(archetype) => write!(f, "World archetype: {archetype}"),
             Self::TryingToReadUnavailableType { type_hash } => {
-                write!(f, "Trying to read unavailable type: {:?}", type_hash)
+                write!(f, "Trying to read unavailable type: {type_hash:?}")
             }
             Self::TryingToWriteUnavailableType { type_hash } => {
-                write!(f, "Trying to write unavailable type: {:?}", type_hash)
+                write!(f, "Trying to write unavailable type: {type_hash:?}")
             }
         }
     }

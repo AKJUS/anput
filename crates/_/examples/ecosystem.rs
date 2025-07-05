@@ -303,7 +303,7 @@ impl ScreenGrid {
         stdout().flush().unwrap();
         let mut column = 0;
         for item in &self.buffer {
-            print!("{}", item);
+            print!("{item}");
             column += 1;
             if column >= self.width {
                 column = 0;

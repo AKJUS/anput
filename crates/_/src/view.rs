@@ -263,7 +263,7 @@ mod tests {
         let join = spawn(move || {
             view.query::<true, &usize>()
                 .inspect(|value| {
-                    println!("Value: {}", value);
+                    println!("Value: {value}");
                     sleep(Duration::from_millis(10));
                 })
                 .copied()
@@ -285,7 +285,7 @@ mod tests {
         sleep(Duration::from_millis(50));
         println!("Wait for job result");
         let sum = join.join().unwrap();
-        println!("Sum: {}", sum);
+        println!("Sum: {sum}");
         assert_eq!(sum, world.query::<true, &usize>().copied().sum());
 
         // View no longer exists, so no more SDIR lock on columns.

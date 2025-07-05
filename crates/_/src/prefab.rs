@@ -32,7 +32,7 @@ impl std::fmt::Display for PrefabError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::CouldNotFindType(type_hash) => {
-                write!(f, "Could not find type by hash: {:?}", type_hash)
+                write!(f, "Could not find type by hash: {type_hash:?}")
             }
             Self::CouldNotSerializeType {
                 type_name,
@@ -52,7 +52,7 @@ impl std::fmt::Display for PrefabError {
                 module_name.as_deref().unwrap_or_default(),
                 type_name
             ),
-            Self::World(error) => write!(f, "World error: {}", error),
+            Self::World(error) => write!(f, "World error: {error}"),
         }
     }
 }

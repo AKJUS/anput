@@ -47,10 +47,7 @@ fn report_nearest(context: SystemContext) -> Result<(), Box<dyn Error>> {
         spatial.nearest_query::<true, (Entity, &Vec2<f32>)>(world, &[0.0, 0.0])
     {
         let distance = position.magnitude();
-        println!(
-            "Entity: {} | Position: {} | Distance: {}",
-            entity, position, distance
-        );
+        println!("Entity: {entity} | Position: {position} | Distance: {distance}");
     }
 
     // Print all spatial entities and their positions
@@ -60,7 +57,7 @@ fn report_nearest(context: SystemContext) -> Result<(), Box<dyn Error>> {
         world,
         &AABB::from_corners([0.0, 0.0], [f32::INFINITY, f32::INFINITY]),
     ) {
-        println!("Entity: {} | Position: {}", entity, position);
+        println!("Entity: {entity} | Position: {position}");
     }
 
     Ok(())

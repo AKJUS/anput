@@ -71,8 +71,7 @@ fn report_world_state(context: SystemContext) -> Result<(), Box<dyn Error>> {
             .query::<true, (Option<&Monster>, Option<&Animal>, &Health, &Strength)>()
     {
         println!(
-            "Monster: {:?} | Animal: {:?} | Health: {:?} | Strength: {:?}",
-            monster, animal, health, strength
+            "Monster: {monster:?} | Animal: {animal:?} | Health: {health:?} | Strength: {strength:?}"
         );
     }
 

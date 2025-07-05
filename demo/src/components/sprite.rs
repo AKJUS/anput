@@ -60,7 +60,7 @@ impl Drawable for Sprite {
             queue!(stream, MoveTo(final_rect.x as _, y as _))?;
             for x in final_rect.x..(final_rect.x + final_rect.w) {
                 if let Some(symbol) = image.get((Vec2::new(x, y) - position).as_::<usize>()) {
-                    write!(stream, "{}", symbol)?;
+                    write!(stream, "{symbol}")?;
                 }
             }
         }

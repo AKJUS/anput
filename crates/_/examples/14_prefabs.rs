@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let prefab = Prefab::from_world::<true>(&universe.simulation, serialization, registry)?;
     let serialized = serde_json::to_string_pretty(&prefab)?;
 
-    println!("{}", serialized);
+    println!("{serialized}");
 
     // Deserialize JSON to prefab and build world from it.
     let deserialized = serde_json::from_str::<Prefab>(&serialized)?;
@@ -54,10 +54,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .0;
 
     for (entity, health, strength) in world.query::<true, (Entity, &Health, &Strength)>() {
-        println!(
-            "Entity: {} | Health: {:?} | Strength: {:?}",
-            entity, health, strength
-        );
+        println!("Entity: {entity} | Health: {health:?} | Strength: {strength:?}");
     }
 
     Ok(())
