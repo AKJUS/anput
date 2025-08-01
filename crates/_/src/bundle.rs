@@ -3,7 +3,12 @@ use crate::{
     component::Component,
 };
 use intuicio_core::object::{DynamicObject, TypedDynamicObject};
-use intuicio_data::{managed::DynamicManaged, non_zero_dealloc, type_hash::TypeHash};
+use intuicio_data::{
+    lifetime::{ValueReadAccess, ValueWriteAccess},
+    managed::DynamicManaged,
+    non_zero_dealloc,
+    type_hash::TypeHash,
+};
 
 #[derive(Default)]
 pub struct DynamicBundle {
@@ -11,6 +16,20 @@ pub struct DynamicBundle {
 }
 
 impl DynamicBundle {
+    pub fn extend<I: IntoIterator<Item = DynamicManaged>>(mut self, iter: I) -> Self {
+        self.components.extend(iter);
+        self
+    }
+
+    pub fn merge(mut self, other: Self) -> Self {
+        self.components.extend(other.components);
+        self
+    }
+
+    pub fn append(&mut self, other: Self) {
+        self.components.extend(other.components);
+    }
+
     pub fn with_component<T: Component>(mut self, component: T) -> Result<Self, T> {
         self.add_component(component)?;
         Ok(self)
@@ -29,6 +48,18 @@ impl DynamicBundle {
         Self {
             components: vec![component],
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.components.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.components.len()
+    }
+
+    pub fn clear(&mut self) {
+        self.components.clear();
     }
 
     pub fn add_component<T: Component>(&mut self, component: T) -> Result<(), T> {
@@ -64,6 +95,30 @@ impl DynamicBundle {
         } else {
             None
         }
+    }
+
+    pub fn components(&self) -> &[DynamicManaged] {
+        &self.components
+    }
+
+    pub fn component<T: Component>(&self) -> Option<ValueReadAccess<T>> {
+        self.component_raw(TypeHash::of::<T>())
+            .and_then(|c| c.read())
+    }
+
+    pub fn component_raw(&self, type_hash: TypeHash) -> Option<&DynamicManaged> {
+        self.components.iter().find(|c| c.type_hash() == &type_hash)
+    }
+
+    pub fn component_mut<T: Component>(&mut self) -> Option<ValueWriteAccess<T>> {
+        self.component_mut_raw(TypeHash::of::<T>())
+            .and_then(|c| c.write())
+    }
+
+    pub fn component_mut_raw(&mut self, type_hash: TypeHash) -> Option<&mut DynamicManaged> {
+        self.components
+            .iter_mut()
+            .find(|c| c.type_hash() == &type_hash)
     }
 }
 

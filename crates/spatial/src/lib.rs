@@ -1,35 +1,28 @@
 use anput::{
     entity::Entity,
     query::{DynamicQueryFilter, DynamicQueryItem, TypedLookupFetch},
-    scheduler::GraphSchedulerQuickPlugin,
+    scheduler::GraphSchedulerPlugin,
     systems::SystemContext,
-    universe::{Plugin, Res},
+    universe::Res,
     world::World,
 };
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, primitives::GeomWithData};
-use std::{error::Error, marker::PhantomData};
+use std::error::Error;
 
 pub mod third_party {
     pub use rstar;
 }
 
-pub struct SpatialPartitioningPlugin<const LOCKING: bool, Extractor: SpatialExtractor>(
-    PhantomData<fn() -> Extractor>,
-);
-
-impl<const LOCKING: bool, Extractor: SpatialExtractor>
-    SpatialPartitioningPlugin<LOCKING, Extractor>
-{
-    pub fn make() -> impl Plugin {
-        GraphSchedulerQuickPlugin::<LOCKING, Self>::default()
-            .resource(SpatialPartitioning::<Extractor>::default())
-            .system(
-                spatial_partitioning::<LOCKING, Extractor>,
-                "spatial_partitioning",
-                (),
-            )
-            .commit()
-    }
+pub fn make_plugin<const LOCKING: bool, Extractor: SpatialExtractor>()
+-> GraphSchedulerPlugin<LOCKING> {
+    GraphSchedulerPlugin::<LOCKING>::default()
+        .resource(SpatialPartitioning::<Extractor>::default())
+        .system_setup(spatial_partitioning::<LOCKING, Extractor>, |system| {
+            system.local(format!(
+                "spatial_partitioning:{}",
+                std::any::type_name::<Extractor>()
+            ))
+        })
 }
 
 pub struct SpatialPartitioning<Extractor: SpatialExtractor> {
@@ -55,6 +48,10 @@ impl<Extractor: SpatialExtractor> SpatialPartitioning<Extractor> {
 
     pub fn tree(&self) -> &RTree<GeomWithData<Extractor::SpatialObject, Entity>> {
         &self.tree
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &GeomWithData<Extractor::SpatialObject, Entity>> {
+        self.tree.iter()
     }
 
     pub fn nearest_entities(

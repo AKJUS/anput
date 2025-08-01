@@ -1,4 +1,10 @@
-use anput::prelude::*;
+use anput::{
+    query::{Exclude, Include, Query},
+    scheduler::{GraphScheduler, GraphSchedulerPlugin},
+    systems::SystemContext,
+    universe::Universe,
+    world::{Relation, World},
+};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -17,13 +23,11 @@ struct Monster;
 struct Pet;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        .system(attack, "attack", ())
-        .system(report_alive, "report_alive", ())
-        .commit();
-
-    let mut universe = Universe::default().with_plugin(plugin);
+    let mut universe = Universe::default().with_plugin(
+        GraphSchedulerPlugin::<true>::default()
+            .system_setup(attack, |system| system.name("attack"))
+            .system_setup(report_alive, |system| system.name("report_alive")),
+    );
     let mut scheduler = GraphScheduler::<true>::default();
 
     // Setup hero and monsters.

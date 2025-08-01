@@ -1,4 +1,13 @@
-use anput::prelude::*;
+use anput::{
+    commands::{CommandBuffer, DespawnCommand, SpawnCommand},
+    component::Component,
+    entity::Entity,
+    query::{Include, Query},
+    scheduler::{GraphScheduler, GraphSchedulerPlugin},
+    systems::{SystemContext, Systems},
+    universe::{Res, Universe},
+    world::World,
+};
 use rand::{Rng, rng};
 use std::{
     error::Error,
@@ -55,31 +64,31 @@ impl Default for Reproduction {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    struct GamePlugin;
-    let game = GraphSchedulerQuickPlugin::<true, GamePlugin>::default()
-        .resource(CommandBuffer::default())
-        .resource(ScreenGrid::new(10, 6))
-        .resource(Contacts::default())
-        .group("update", (), |group| {
-            group
-                .system(movement, "movement", ())
-                .system(contacts, "contacts", ())
-                .system(reproduction::<Bunny>, "reproduction:bunny", ())
-                .system(reproduction::<Fox>, "reproduction:fox", ())
-                .system(kill::<Fox, Bunny>, "kill:fox:bunny", ())
-                .system(death, "death", ())
-        })
-        .group("render", (), |group| {
-            group.system(render::<Bunny>, "render:bunny", ()).system(
-                render::<Fox>,
-                "render:fox",
-                (),
-            )
-        })
-        .system(display_screen, "display_screen", ())
-        .commit();
-
-    let mut universe = Universe::default().with_plugin(game);
+    let mut universe = Universe::default().with_plugin(
+        GraphSchedulerPlugin::<true>::default()
+            .resource(CommandBuffer::default())
+            .resource(ScreenGrid::new(10, 6))
+            .resource(Contacts::default())
+            .plugin_setup(|plugin| {
+                plugin
+                    .system_setup(movement, |system| system.name("movement"))
+                    .system_setup(contacts, |system| system.name("contacts"))
+                    .system_setup(reproduction::<Bunny>, |system| {
+                        system.name("reproduction:bunny")
+                    })
+                    .system_setup(reproduction::<Fox>, |system| {
+                        system.name("reproduction:fox")
+                    })
+                    .system_setup(kill::<Fox, Bunny>, |system| system.name("kill:fox:bunny"))
+                    .system_setup(death, |system| system.name("death"))
+            })
+            .plugin_setup(|plugin| {
+                plugin
+                    .system_setup(render::<Bunny>, |system| system.name("render:bunny"))
+                    .system_setup(render::<Fox>, |system| system.name("render:fox"))
+            })
+            .system_setup(display_screen, |system| system.name("display_screen")),
+    );
 
     Systems::run_one_shot::<true>(&universe, init)?;
     let mut scheduler = GraphScheduler::<true>::default();

@@ -1,0 +1,42 @@
+{
+  "archetypes": [
+    {
+      "entities": [
+        {
+          "id": 0,
+          "generation": 0
+        },
+        {
+          "id": 1,
+          "generation": 0
+        }
+      ],
+      "columns": [
+        {
+          "type_name": "14_savefile::Health",
+          "module_name": null,
+          "components": [
+            {
+              "value": 85
+            },
+            {
+              "value": 100
+            }
+          ]
+        },
+        {
+          "type_name": "14_savefile::Strength",
+          "module_name": null,
+          "components": [
+            {
+              "value": 20
+            },
+            {
+              "value": 15
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

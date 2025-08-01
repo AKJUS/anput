@@ -1335,6 +1335,15 @@ impl Archetype {
         self.columns.as_ref().len() == columns.len() && self.has_columns(columns)
     }
 
+    pub fn has_any_columns(&self, columns: &[ArchetypeColumnInfo]) -> bool {
+        columns.iter().any(|column| {
+            self.columns
+                .as_ref()
+                .iter()
+                .any(|c| column.type_hash == c.info.type_hash)
+        })
+    }
+
     pub fn has_no_columns(&self, columns: &[ArchetypeColumnInfo]) -> bool {
         !columns.iter().any(|column| {
             self.columns
@@ -1760,6 +1769,10 @@ impl ArchetypeView {
 
     pub fn has_columns_exact(&self, columns: &[ArchetypeColumnInfo]) -> bool {
         self.archetype.has_columns_exact(columns)
+    }
+
+    pub fn has_any_columns(&self, columns: &[ArchetypeColumnInfo]) -> bool {
+        self.archetype.has_any_columns(columns)
     }
 
     pub fn has_no_columns(&self, columns: &[ArchetypeColumnInfo]) -> bool {

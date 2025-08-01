@@ -1,6 +1,6 @@
 [package]
 name = "anput"
-version = "0.15.11"
+version = "0.16.0"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Scriptable Entity-Component-System (powered by Intuicio)"
@@ -14,11 +14,11 @@ readme = "../../README.md"
 deadlock-trace = ["anput-jobs/deadlock-trace"]
 
 [dependencies]
-anput-jobs = { version = "0.15", path = "../jobs" }
-intuicio-data = "0.46"
-intuicio-core = "0.46"
-intuicio-derive = "0.46"
-intuicio-framework-serde = "0.46"
+anput-jobs = { version = "0.16", path = "../jobs" }
+intuicio-data = "0.47"
+intuicio-core = "0.47"
+intuicio-derive = "0.47"
+intuicio-framework-serde = "0.47"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]

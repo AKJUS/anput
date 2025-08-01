@@ -2,50 +2,49 @@ use crate::{
     archetype::ArchetypeColumnInfo,
     bundle::{Bundle, BundleColumns},
     component::{Component, ComponentRef, ComponentRefMut},
+    entity::Entity,
     query::{TypedLookupAccess, TypedLookupFetch, TypedQueryFetch, TypedQueryIter},
     world::{World, WorldChanges, WorldError},
 };
 use intuicio_data::type_hash::TypeHash;
 use std::{error::Error, sync::RwLockReadGuard};
 
-#[derive(Default)]
 pub struct Resources {
     world: World,
+    entity: Entity,
+}
+
+impl Default for Resources {
+    fn default() -> Self {
+        let mut world = World::default();
+        let entity = world.spawn(((),)).unwrap();
+        Self { world, entity }
+    }
 }
 
 impl Resources {
     pub fn add(&mut self, bundle: impl Bundle) -> Result<(), Box<dyn Error>> {
-        let entity = self.world.entities().next();
-        if let Some(entity) = entity {
-            WorldError::allow(
-                self.world.insert(entity, bundle),
-                [WorldError::EmptyColumnSet],
-                (),
-            )?;
-        } else {
-            self.world.spawn(bundle)?;
-        }
+        WorldError::allow(
+            self.world.insert(self.entity, bundle),
+            [WorldError::EmptyColumnSet],
+            (),
+        )?;
         Ok(())
     }
 
     pub fn remove<T: BundleColumns>(&mut self) -> Result<(), Box<dyn Error>> {
-        let entity = self.world.entities().next();
-        if let Some(entity) = entity {
-            self.world.remove::<T>(entity)?;
-        }
+        self.world.remove::<T>(self.entity)?;
         Ok(())
     }
 
     pub fn remove_raw(&mut self, columns: Vec<ArchetypeColumnInfo>) -> Result<(), Box<dyn Error>> {
-        let entity = self.world.entities().next();
-        if let Some(entity) = entity {
-            self.world.remove_raw(entity, columns)?;
-        }
+        self.world.remove_raw(self.entity, columns)?;
         Ok(())
     }
 
     pub fn clear(&mut self) {
         self.world.clear();
+        self.entity = self.world.spawn(((),)).unwrap();
     }
 
     pub fn clear_changes(&mut self) {
@@ -73,32 +72,28 @@ impl Resources {
     }
 
     pub fn has<T: Component>(&self) -> bool {
-        let entity = self.world.entities().next().unwrap_or_default();
-        self.world.has_entity_component::<T>(entity)
+        self.world.has_entity_component::<T>(self.entity)
     }
 
     pub fn ensure<const LOCKING: bool, T: Component + Default>(
         &mut self,
     ) -> Result<ComponentRefMut<LOCKING, T>, Box<dyn Error>> {
-        let entity = self.world.entities().next().unwrap_or_default();
-        if !self.world.has_entity_component::<T>(entity) {
-            self.world.insert(entity, (T::default(),))?;
+        if !self.world.has_entity_component::<T>(self.entity) {
+            self.world.insert(self.entity, (T::default(),))?;
         }
-        Ok(self.world.component_mut(entity)?)
+        Ok(self.world.component_mut(self.entity)?)
     }
 
     pub fn get<const LOCKING: bool, T: Component>(
         &self,
     ) -> Result<ComponentRef<LOCKING, T>, Box<dyn Error>> {
-        let entity = self.world.entities().next().unwrap_or_default();
-        Ok(self.world.component(entity)?)
+        Ok(self.world.component(self.entity)?)
     }
 
     pub fn get_mut<const LOCKING: bool, T: Component>(
         &self,
     ) -> Result<ComponentRefMut<LOCKING, T>, Box<dyn Error>> {
-        let entity = self.world.entities().next().unwrap_or_default();
-        Ok(self.world.component_mut(entity)?)
+        Ok(self.world.component_mut(self.entity)?)
     }
 
     pub fn query<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>>(
@@ -111,5 +106,11 @@ impl Resources {
         &'a self,
     ) -> TypedLookupAccess<'a, LOCKING, Fetch> {
         self.world.lookup_access::<LOCKING, Fetch>()
+    }
+
+    pub fn lookup_one<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
+        &'a self,
+    ) -> Option<Fetch::ValueOne> {
+        self.world.lookup_one::<LOCKING, Fetch>(self.entity)
     }
 }

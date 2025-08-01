@@ -1,4 +1,12 @@
-use anput::prelude::*;
+use anput::{
+    commands::{CommandBuffer, DespawnCommand, SpawnCommand},
+    entity::Entity,
+    query::{Query, Update},
+    scheduler::{GraphScheduler, GraphSchedulerPlugin},
+    systems::SystemContext,
+    universe::{Res, Universe},
+    world::World,
+};
 use rand::{Rng, rng};
 use std::error::Error;
 
@@ -17,16 +25,14 @@ struct Stats {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        .resource(CommandBuffer::default())
-        .resource(Stats::default())
-        .system(evolve_monster, "evolve_monster", ())
-        .system(spawn_monster, "spawn_monster", ())
-        .system(stats_react, "stats_react", ())
-        .commit();
-
-    let mut universe = Universe::default().with_plugin(plugin);
+    let mut universe = Universe::default().with_plugin(
+        GraphSchedulerPlugin::<true>::default()
+            .resource(CommandBuffer::default())
+            .resource(Stats::default())
+            .system_setup(evolve_monster, |system| system.name("evolve_monster"))
+            .system_setup(spawn_monster, |system| system.name("spawn_monster"))
+            .system_setup(stats_react, |system| system.name("stats_react")),
+    );
     let mut scheduler = GraphScheduler::<true>::default();
 
     for index in 0..10 {

@@ -1,5 +1,9 @@
-use anput::{jobs::Jobs, prelude::*, view::WorldView};
-use anput_jobs::{JobLocation, JobPriority, coroutine::block_on};
+use anput::{
+    entity::Entity,
+    view::WorldView,
+    world::{Relation, World},
+};
+use anput_jobs::{JobLocation, JobPriority, Jobs, coroutine::block_on};
 use rand::{Rng, rng};
 use std::{collections::HashSet, error::Error};
 

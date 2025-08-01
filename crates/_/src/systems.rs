@@ -2,6 +2,7 @@ use crate::{
     bundle::Bundle,
     component::Component,
     entity::Entity,
+    query::{TypedLookupAccess, TypedLookupFetch, TypedQueryFetch, TypedQueryIter},
     universe::{Res, Universe, UniverseCondition, UniverseFetch},
     world::{World, WorldError},
 };
@@ -19,6 +20,7 @@ use std::{
     sync::RwLock,
 };
 
+#[derive(Clone, Copy)]
 pub struct SystemContext<'a> {
     pub universe: &'a Universe,
     entity: Entity,
@@ -44,14 +46,6 @@ impl<'a> SystemContext<'a> {
         Fetch::fetch(self.universe, self.entity)
     }
 }
-
-impl Clone for SystemContext<'_> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl Copy for SystemContext<'_> {}
 
 pub trait System: Component {
     fn run(&self, context: SystemContext) -> Result<(), Box<dyn Error>>;
@@ -195,6 +189,20 @@ impl SystemObject {
     }
 }
 
+impl System for SystemObject {
+    fn run(&self, context: SystemContext) -> Result<(), Box<dyn Error>> {
+        self.0.run(context)
+    }
+
+    fn should_run(&self, context: SystemContext) -> bool {
+        self.0.should_run(context)
+    }
+
+    fn try_run(&self, context: SystemContext) -> Result<(), Box<dyn Error>> {
+        self.0.try_run(context)
+    }
+}
+
 pub struct SystemRunCondition(Box<dyn Fn(SystemContext) -> bool + Send + Sync>);
 
 impl SystemRunCondition {
@@ -286,5 +294,38 @@ impl Systems {
         system: impl System,
     ) -> Result<(), Box<dyn Error>> {
         system.try_run(SystemContext::new(universe, Default::default()))
+    }
+
+    pub fn query<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>>(
+        &'a self,
+    ) -> TypedQueryIter<'a, LOCKING, Fetch> {
+        self.world.query::<LOCKING, Fetch>()
+    }
+
+    pub fn lookup<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
+        &'a self,
+    ) -> TypedLookupAccess<'a, LOCKING, Fetch> {
+        self.world.lookup_access::<LOCKING, Fetch>()
+    }
+
+    pub fn lookup_one<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>>(
+        &'a self,
+        entity: Entity,
+    ) -> Option<Fetch::ValueOne> {
+        self.world.lookup_one::<LOCKING, Fetch>(entity)
+    }
+
+    pub fn find_by<const LOCKING: bool, T: Component + PartialEq>(
+        &self,
+        data: &T,
+    ) -> Option<Entity> {
+        self.world.find_by::<LOCKING, T>(data)
+    }
+
+    pub fn find_with<const LOCKING: bool, T: Component>(
+        &self,
+        f: impl Fn(&T) -> bool,
+    ) -> Option<Entity> {
+        self.world.find_with::<LOCKING, T>(f)
     }
 }

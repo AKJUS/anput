@@ -1,4 +1,8 @@
-use anput::prelude::*;
+use anput::{
+    scheduler::GraphSchedulerPlugin,
+    systems::{SystemContext, Systems},
+    universe::{Res, Universe},
+};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -8,13 +12,11 @@ struct Gold(pub usize);
 struct Food(pub usize);
 
 fn main() -> Result<(), Box<dyn Error>> {
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        .resource(Gold(1000))
-        .resource(Food(500))
-        .commit();
-
-    let universe = Universe::default().with_plugin(plugin);
+    let universe = Universe::default().with_plugin(
+        GraphSchedulerPlugin::<true>::default()
+            .resource(Gold(1000))
+            .resource(Food(500)),
+    );
 
     // Calling `Systems::run_one_shot` allows to execute specific system in-place.
     // Useful in cases where system doesn't need to be part of continous game loop.

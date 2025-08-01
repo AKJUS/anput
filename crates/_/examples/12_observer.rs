@@ -1,4 +1,10 @@
-use anput::{observer::ChangeObserver, prelude::*};
+use anput::{
+    commands::{CommandBuffer, DespawnCommand, SpawnCommand},
+    observer::ChangeObserver,
+    scheduler::{GraphScheduler, GraphSchedulerPlugin},
+    systems::SystemContext,
+    universe::{Res, Universe},
+};
 use rand::{Rng, rng};
 use std::error::Error;
 
@@ -12,13 +18,13 @@ struct Heat;
 struct Cold;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        .resource(CommandBuffer::default())
-        .system(spawn_temperature_change, "spawn_temperature_change", ())
-        .commit();
-
-    let mut universe = Universe::default().with_plugin(plugin);
+    let mut universe = Universe::default().with_plugin(
+        GraphSchedulerPlugin::<true>::default()
+            .resource(CommandBuffer::default())
+            .system_setup(spawn_temperature_change, |system| {
+                system.name("spawn_temperature_change")
+            }),
+    );
     let mut scheduler = GraphScheduler::<true>::default();
 
     let temperature = universe.simulation.spawn((Temperature::default(),))?;

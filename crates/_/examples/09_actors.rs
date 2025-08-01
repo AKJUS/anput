@@ -1,4 +1,4 @@
-use anput::{actor::Actor, prelude::*};
+use anput::{actor::Actor, universe::Universe};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]

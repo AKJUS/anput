@@ -1,4 +1,4 @@
-use anput::prelude::*;
+use anput::{scheduler::GraphSchedulerPlugin, universe::Universe};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -9,15 +9,13 @@ struct Food(pub usize);
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Plugins serve as units that setup universe and automatically handle lifetime of installed things.
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        // Village treasury.
-        .resource(Gold(1000))
-        // Village food supply.
-        .resource(Food(500))
-        .commit();
-
-    let universe = Universe::default().with_plugin(plugin);
+    let universe = Universe::default().with_plugin(
+        GraphSchedulerPlugin::<true>::default()
+            // Village treasury.
+            .resource(Gold(1000))
+            // Village food supply.
+            .resource(Food(500)),
+    );
 
     // A feast is held and villagers are consuming food.
     {

@@ -1,4 +1,10 @@
-use anput::prelude::*;
+use anput::{
+    query::Query,
+    scheduler::{GraphScheduler, GraphSchedulerPlugin},
+    systems::SystemContext,
+    universe::{Local, Universe},
+    world::World,
+};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -11,13 +17,11 @@ struct Level(pub usize);
 struct Boost(pub usize);
 
 fn main() -> Result<(), Box<dyn Error>> {
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        .system(training, "training", (Boost(1),))
-        .system(report, "report", ())
-        .commit();
-
-    let mut universe = Universe::default().with_plugin(plugin);
+    let mut universe = Universe::default().with_plugin(
+        GraphSchedulerPlugin::<true>::default()
+            .system_setup(training, |system| system.name("training").local(Boost(1)))
+            .system_setup(report, |system| system.name("report").local(())),
+    );
     let mut scheduler = GraphScheduler::<true>::default();
 
     // Setup heroes.

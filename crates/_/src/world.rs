@@ -480,6 +480,15 @@ impl<T: Component> Relation<T> {
         TypeHash::of::<T>()
     }
 
+    /// Returns the number of connections in the relation.
+    pub fn len(&self) -> usize {
+        match &self.connections {
+            RelationConnections::Zero(_) => 0,
+            RelationConnections::One(_) => 1,
+            RelationConnections::More(vec) => vec.len(),
+        }
+    }
+
     /// Checks if the relation has no connections.
     pub fn is_empty(&self) -> bool {
         match &self.connections {
@@ -938,8 +947,7 @@ impl World {
     #[inline]
     pub fn clear(&mut self) {
         self.clear_changes();
-        self.archetypes.clear();
-        self.entities.clear();
+        self.despawn_all();
     }
 
     pub fn spawn(&mut self, bundle: impl Bundle) -> Result<Entity, WorldError> {
@@ -1100,6 +1108,12 @@ impl World {
                 Err(error.into())
             }
         }
+    }
+
+    #[inline]
+    pub fn despawn_all(&mut self) {
+        self.archetypes.clear();
+        self.entities.clear();
     }
 
     pub fn insert(&mut self, entity: Entity, bundle: impl Bundle) -> Result<(), WorldError> {

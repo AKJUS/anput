@@ -1,4 +1,4 @@
-use anput::{prelude::*, view::WorldView};
+use anput::{view::TypedWorldView, world::World};
 use rand::{Rng, rng};
 use std::{error::Error, thread::spawn};
 
@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         world.spawn((position, velocity)).unwrap();
     }
 
-    let view = WorldView::new::<(Position, Velocity)>(&world);
+    let view = TypedWorldView::<(Position, Velocity)>::new(&world);
     spawn(move || {
         for (pos, vel) in view.query::<true, (&mut Position, &Velocity)>() {
             pos.0 += vel.0;

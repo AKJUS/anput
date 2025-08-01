@@ -1,20 +1,24 @@
-use anput::prelude::*;
+use anput::{
+    entity::Entity,
+    query::Include,
+    scheduler::{GraphScheduler, GraphSchedulerPlugin},
+    systems::SystemContext,
+    universe::{Res, Universe},
+    world::World,
+};
 use anput_spatial::{third_party::rstar::AABB, *};
 use std::error::Error;
 use vek::Vec2;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Setup game plugin.
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        .system(report_nearest, "report_nearest", ())
-        .commit();
-
     // Setup universe with spatial partitioning plugin and game plugin.
     let mut universe = Universe::default()
-        .with_basics(10240, 10240)
-        .with_plugin(SpatialPartitioningPlugin::<true, MySpatialExtractor>::make())
-        .with_plugin(plugin);
+        .with_basics(10240, 10240)?
+        .with_plugin(anput_spatial::make_plugin::<true, MySpatialExtractor>())
+        .with_plugin(
+            GraphSchedulerPlugin::<true>::default()
+                .system_setup(report_nearest, |system| system.name("report_nearest")),
+        );
 
     // Spawn entities with positions and spatial component except one,
     // to show only entities marked with Spatial component will be reported.

@@ -1,4 +1,12 @@
-use anput::prelude::*;
+use anput::{
+    commands::{CommandBuffer, SpawnCommand},
+    entity::Entity,
+    query::Query,
+    scheduler::{GraphScheduler, GraphSchedulerPlugin, SystemParallelize},
+    systems::SystemContext,
+    universe::{Res, Universe},
+    world::{Relation, World},
+};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -13,36 +21,36 @@ struct Age(pub usize);
 struct Parent;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        // We define sequenced group for tree progression.
-        .group("progress", (), |group| {
-            // In that group we run all its systems in parallel, because we know
-            // they don't interact with same components mutably.
-            // Group will wait for all its parallelized systems to complete and
-            // only then this group completes.
-            group
-                .system(
-                    consume_energy,
-                    "consume_energy",
-                    (SystemParallelize::AnyWorker,),
-                )
-                .system(
-                    consume_water,
-                    "consume_water",
-                    (SystemParallelize::AnyWorker,),
-                )
-                .system(age, "age", (SystemParallelize::AnyWorker,))
-        })
-        // After entire progression group completes, we then run reproduction
-        // system sequenced, because reproduction needs to mutate all components
-        // to be able to spawn new trees.
-        .system(reproduce, "reproduce", ())
-        .commit();
-
-    let mut universe = Universe::default()
-        .with_basics(10240, 10240)
-        .with_plugin(plugin);
+    let mut universe = Universe::default().with_basics(10240, 10240)?.with_plugin(
+        GraphSchedulerPlugin::<true>::default()
+            // We define sequenced group for tree progression.
+            .plugin_setup(|plugin| {
+                // In that group we run all its systems in parallel, because we know
+                // they don't interact with same components mutably.
+                // Group will wait for all its parallelized systems to complete and
+                // only then this group completes.
+                plugin
+                    .system_setup(consume_energy, |system| {
+                        system
+                            .name("consume_energy")
+                            .local(SystemParallelize::AnyWorker)
+                    })
+                    .system_setup(consume_water, |system| {
+                        system
+                            .name("consume_water")
+                            .local(SystemParallelize::AnyWorker)
+                    })
+                    .system_setup(age, |system| {
+                        system.name("age").local(SystemParallelize::AnyWorker)
+                    })
+            })
+            // After entire progression group completes, we then run reproduction
+            // system sequenced, because reproduction needs to mutate all components
+            // to be able to spawn new trees.
+            .system_setup(reproduce, |system| {
+                system.name("reproduce").local(SystemParallelize::AnyWorker)
+            }),
+    );
     let mut scheduler = GraphScheduler::<true>::default();
 
     // Spawn first tree that will start chain of new generations.

@@ -558,6 +558,112 @@ impl<'a, const LOCKING: bool, T: Component> TypedLookupFetch<'a, LOCKING> for Op
     }
 }
 
+pub struct Satisfy<T>(PhantomData<fn() -> T>);
+
+impl<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>> TypedQueryFetch<'a, LOCKING>
+    for Satisfy<Fetch>
+{
+    type Value = ();
+    type Access = ();
+
+    fn does_accept_archetype(archetype: &Archetype) -> bool {
+        Fetch::does_accept_archetype(archetype)
+    }
+
+    fn access(_: &'_ Archetype) -> Result<Self::Access, QueryError> {
+        Ok(())
+    }
+
+    fn fetch(_: &mut Self::Access) -> Option<Self::Value> {
+        Some(())
+    }
+}
+
+impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> TypedLookupFetch<'a, LOCKING>
+    for Satisfy<Fetch>
+{
+    type Value = ();
+    type ValueOne = ();
+    type Access = &'a EntityDenseMap;
+
+    fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
+        if Fetch::try_access(archetype).is_some() {
+            Some(archetype.entities())
+        } else {
+            None
+        }
+    }
+
+    fn fetch(access: &mut Self::Access, entity: Entity) -> Option<Self::Value> {
+        if access.contains(entity) {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+        if Fetch::fetch_one(world, entity).is_some() {
+            Some(())
+        } else {
+            None
+        }
+    }
+}
+
+pub struct DoesNotSatisfy<T>(PhantomData<fn() -> T>);
+
+impl<'a, const LOCKING: bool, Fetch: TypedQueryFetch<'a, LOCKING>> TypedQueryFetch<'a, LOCKING>
+    for DoesNotSatisfy<Fetch>
+{
+    type Value = ();
+    type Access = ();
+
+    fn does_accept_archetype(archetype: &Archetype) -> bool {
+        !Fetch::does_accept_archetype(archetype)
+    }
+
+    fn access(_: &'_ Archetype) -> Result<Self::Access, QueryError> {
+        Ok(())
+    }
+
+    fn fetch(_: &mut Self::Access) -> Option<Self::Value> {
+        Some(())
+    }
+}
+
+impl<'a, const LOCKING: bool, Fetch: TypedLookupFetch<'a, LOCKING>> TypedLookupFetch<'a, LOCKING>
+    for DoesNotSatisfy<Fetch>
+{
+    type Value = ();
+    type ValueOne = ();
+    type Access = &'a EntityDenseMap;
+
+    fn try_access(archetype: &'a Archetype) -> Option<Self::Access> {
+        if Fetch::try_access(archetype).is_none() {
+            Some(archetype.entities())
+        } else {
+            None
+        }
+    }
+
+    fn fetch(access: &mut Self::Access, entity: Entity) -> Option<Self::Value> {
+        if access.contains(entity) {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    fn fetch_one(world: &'a World, entity: Entity) -> Option<Self::ValueOne> {
+        if Fetch::fetch_one(world, entity).is_none() {
+            Some(())
+        } else {
+            None
+        }
+    }
+}
+
 pub struct Include<T: Component>(PhantomData<fn() -> T>);
 
 impl<const LOCKING: bool, T: Component> TypedQueryFetch<'_, LOCKING> for Include<T> {

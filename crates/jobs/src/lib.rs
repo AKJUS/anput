@@ -380,6 +380,10 @@ impl JobQueue {
                     None
                 }
             }
+            (JobLocation::NonLocal, JobLocation::Local) => {
+                queue.push_front(object);
+                None
+            }
             (JobLocation::Unknown, _) => Some(object),
             _ => {
                 queue.push_front(object);
@@ -569,6 +573,7 @@ pub enum JobLocation {
     #[default]
     Unknown,
     Local,
+    NonLocal,
     UnnamedWorker,
     NamedWorker(String),
     ExactThread(ThreadId),

@@ -1,6 +1,6 @@
 [package]
 name = "anput-jobs"
-version = "0.15.11"
+version = "0.16.0"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Jobs plugin for Anput ECS"
@@ -14,5 +14,5 @@ readme = "../../README.md"
 deadlock-trace = []
 
 [dependencies]
-intuicio-data = "0.46"
+intuicio-data = "0.47"
 typid = "1"

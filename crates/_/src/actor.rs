@@ -231,7 +231,10 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use intuicio_core::prelude::*;
+    use intuicio_core::{
+        transformer::{DynamicManagedValueTransformer, ValueTransformer},
+        types::struct_type::NativeStructBuilder,
+    };
     use intuicio_derive::intuicio_function;
 
     fn is_async<T: Send + Sync>() {}

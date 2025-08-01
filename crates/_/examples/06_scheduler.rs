@@ -1,4 +1,8 @@
-use anput::prelude::*;
+use anput::{
+    scheduler::{GraphScheduler, GraphSchedulerPlugin},
+    systems::SystemContext,
+    universe::{Res, Universe},
+};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -11,28 +15,22 @@ struct Food(pub usize);
 struct Heat(pub usize);
 
 fn main() -> Result<(), Box<dyn Error>> {
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        .resource(Gold(1000))
-        .resource(Food(500))
-        .resource(Heat(20))
-        .group("summer", (), |group| {
-            group.system(generate_income, "generate_income", ()).system(
-                harvest_food,
-                "harvest_food",
-                (),
-            )
-        })
-        .group("winter", (), |group| {
-            group.system(consume_food, "consume_food", ()).system(
-                increase_heat,
-                "increase_heat",
-                (),
-            )
-        })
-        .commit();
-
-    let mut universe = Universe::default().with_plugin(plugin);
+    let mut universe = Universe::default().with_plugin(
+        GraphSchedulerPlugin::<true>::default()
+            .resource(Gold(1000))
+            .resource(Food(500))
+            .resource(Heat(20))
+            .plugin_setup(|plugin| {
+                plugin
+                    .system_setup(generate_income, |system| system.name("generate_income"))
+                    .system_setup(harvest_food, |system| system.name("harvest_food"))
+            })
+            .plugin_setup(|plugin| {
+                plugin
+                    .system_setup(consume_food, |system| system.name("consume_food"))
+                    .system_setup(increase_heat, |system| system.name("increase_heat"))
+            }),
+    );
     // Create a scheduler instance that will run universe systems.
     let mut scheduler = GraphScheduler::<true>::default();
 

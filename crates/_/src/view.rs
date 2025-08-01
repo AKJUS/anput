@@ -9,7 +9,57 @@ use crate::{
     },
     world::World,
 };
-use std::ops::{Bound, RangeBounds};
+use std::{
+    marker::PhantomData,
+    ops::{Bound, Deref, RangeBounds},
+};
+
+pub struct TypedWorldView<B: BundleColumns> {
+    view: WorldView,
+    _phantom: PhantomData<B>,
+}
+
+impl<B: BundleColumns> TypedWorldView<B> {
+    pub fn new(world: &World) -> Self {
+        Self {
+            view: WorldView::new::<B>(world),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn new_raw(view: WorldView) -> Option<Self> {
+        for column in B::columns_static() {
+            if !view.views.iter().any(|v| v.has_column(&column)) {
+                return None;
+            }
+        }
+        Some(Self {
+            view,
+            _phantom: PhantomData,
+        })
+    }
+
+    pub fn into_inner(self) -> WorldView {
+        self.view
+    }
+}
+
+impl<B: BundleColumns> Clone for TypedWorldView<B> {
+    fn clone(&self) -> Self {
+        Self {
+            view: self.view.clone(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<B: BundleColumns> Deref for TypedWorldView<B> {
+    type Target = WorldView;
+
+    fn deref(&self) -> &Self::Target {
+        &self.view
+    }
+}
 
 #[derive(Default, Clone)]
 pub struct WorldView {
@@ -241,8 +291,9 @@ impl Iterator for WorldViewEntityRangeIter<'_> {
 
 #[cfg(test)]
 mod tests {
+    use anput_jobs::Jobs;
+
     use super::*;
-    use crate::jobs::Jobs;
     use std::{
         thread::{sleep, spawn},
         time::Duration,
@@ -286,7 +337,7 @@ mod tests {
         println!("Wait for job result");
         let sum = join.join().unwrap();
         println!("Sum: {sum}");
-        assert_eq!(sum, world.query::<true, &usize>().copied().sum());
+        assert_eq!(sum, world.query::<true, &usize>().copied().sum::<usize>());
 
         // View no longer exists, so no more SDIR lock on columns.
         println!("Spawn previously SDIR locked columns");

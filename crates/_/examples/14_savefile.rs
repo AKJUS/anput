@@ -1,5 +1,11 @@
-use anput::{prefab::Prefab, prelude::*, processor::WorldProcessor};
-use intuicio_core::prelude::*;
+use anput::{
+    commands::{CommandBuffer, DespawnCommand},
+    entity::Entity,
+    prefab::Prefab,
+    processor::WorldProcessor,
+    universe::Universe,
+};
+use intuicio_core::{IntuicioStruct, registry::Registry};
 use intuicio_derive::IntuicioStruct;
 use intuicio_framework_serde::SerializationRegistry;
 use serde::{Deserialize, Serialize};
@@ -18,7 +24,7 @@ struct Strength {
 const FILENAME: &str = "./crates/_/examples/snapshot.save";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut universe = Universe::default().with_basics(10240, 10240);
+    let mut universe = Universe::default().with_basics(10240, 10240)?;
 
     // Register components to type registry (holds reflection info of each type).
     let registry = &mut *universe.resources.get_mut::<true, Registry>()?;

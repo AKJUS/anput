@@ -1,16 +1,18 @@
-use anput::prelude::*;
+use anput::{
+    commands::{CommandBuffer, DespawnCommand, SpawnCommand},
+    entity::Entity,
+    query::Include,
+    scheduler::GraphSchedulerPlugin,
+    universe::Universe,
+};
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
 struct Villager;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    struct MyPlugin;
-    let plugin = GraphSchedulerQuickPlugin::<true, MyPlugin>::default()
-        .resource(CommandBuffer::default())
-        .commit();
-
-    let mut universe = Universe::default().with_plugin(plugin);
+    let mut universe = Universe::default()
+        .with_plugin(GraphSchedulerPlugin::<true>::default().resource(CommandBuffer::default()));
 
     // Issue spawn command to create a villager and immediatelly execute the buffer.
     {

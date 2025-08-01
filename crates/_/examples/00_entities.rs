@@ -1,4 +1,4 @@
-use anput::{bundle::DynamicBundle, prelude::*};
+use anput::{bundle::DynamicBundle, universe::Universe};
 use std::error::Error;
 
 #[derive(Debug)]

@@ -1,11 +1,11 @@
+use std::cmp::Ordering;
+
 use intuicio_core::{IntuicioStruct, registry::Registry};
 use intuicio_derive::*;
 use serde::{Deserialize, Serialize};
 
 /// Represents an entity with a unique `id` and a `generation` to track lifecycle and version.
-#[derive(
-    IntuicioStruct, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(IntuicioStruct, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[intuicio(module_name = "ecs_entity")]
 pub struct Entity {
     #[intuicio(ignore)]
@@ -92,6 +92,20 @@ impl std::fmt::Display for Entity {
         } else {
             write!(f, "@none:#{}", self.generation)
         }
+    }
+}
+
+impl PartialOrd for Entity {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Entity {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.generation
+            .cmp(&other.generation)
+            .then(self.id.cmp(&other.id))
     }
 }
 

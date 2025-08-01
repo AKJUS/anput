@@ -1,4 +1,4 @@
-use anput::prelude::*;
+use anput::universe::Universe;
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]

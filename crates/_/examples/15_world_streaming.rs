@@ -1,4 +1,11 @@
-use anput::{prelude::*, processor::WorldProcessor};
+use anput::{
+    entity::Entity,
+    processor::WorldProcessor,
+    query::Query,
+    systems::{SystemContext, Systems},
+    universe::Universe,
+    world::World,
+};
 use intuicio_derive::IntuicioStruct;
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
@@ -27,7 +34,7 @@ struct WorldChunk {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut universe = Universe::default().with_basics(10240, 10240);
+    let mut universe = Universe::default().with_basics(10240, 10240)?;
 
     println!("--- Game started with chunk #0");
     let world_chunk = make_world_chunk(0)?;
