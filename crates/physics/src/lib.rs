@@ -17,14 +17,15 @@ use crate::{
         dispatch_contact_events,
     },
     components::{
-        AngularVelocity, BodyDensityFieldRelation, BodyParentRelation, BodyParticleRelation,
-        ExternalForces, LinearVelocity, Mass, ParticleConstraintRelation, PhysicsBody,
-        PhysicsMaterial, PhysicsParticle, Position,
+        AngularVelocity, BodyDensityFieldRelation, BodyMaterial, BodyParentRelation,
+        BodyParticleRelation, ExternalForces, LinearVelocity, Mass, ParticleConstraintRelation,
+        PhysicsBody, PhysicsParticle, Position,
     },
+    constraints::distance::solve_distance_constraint,
     density_fields::DensityFieldBox,
     queries::shape::ShapeOverlapQuery,
     solvers::{
-        apply_external_forces, apply_gravity, cache_current_as_previous_state,
+        apply_external_forces, apply_gravity, cache_current_as_previous_state, dampening_solver,
         integrate_velocities, recalculate_velocities,
     },
 };
@@ -38,7 +39,7 @@ pub use std::f32 as scalar;
 pub type PhysicsAccessBundleColumns = (
     PhysicsBody,
     PhysicsParticle,
-    PhysicsMaterial,
+    BodyMaterial,
     Mass,
     Position,
     LinearVelocity,
@@ -90,6 +91,8 @@ pub struct PhysicsPlugin<const LOCKING: bool> {
     install_collect_contacts: bool,
     install_dispatch_contact_events: bool,
     repulsive_collision_callbacks: RepulsiveCollisionCallbacks,
+    install_dampening_solver: bool,
+    install_distance_constraints_solver: bool,
 }
 
 impl<const LOCKING: bool> Default for PhysicsPlugin<LOCKING> {
@@ -104,6 +107,8 @@ impl<const LOCKING: bool> Default for PhysicsPlugin<LOCKING> {
             install_collect_contacts: true,
             install_dispatch_contact_events: true,
             repulsive_collision_callbacks: Default::default(),
+            install_dampening_solver: true,
+            install_distance_constraints_solver: true,
         }
     }
 }
@@ -120,6 +125,8 @@ impl<const LOCKING: bool> PhysicsPlugin<LOCKING> {
             install_collect_contacts: false,
             install_dispatch_contact_events: false,
             repulsive_collision_callbacks: Default::default(),
+            install_dampening_solver: false,
+            install_distance_constraints_solver: false,
         }
     }
 
@@ -163,6 +170,16 @@ impl<const LOCKING: bool> PhysicsPlugin<LOCKING> {
         self
     }
 
+    pub fn install_dampening_solver(mut self, install: bool) -> Self {
+        self.install_dampening_solver = install;
+        self
+    }
+
+    pub fn install_distance_constraints_solver(mut self, install: bool) -> Self {
+        self.install_distance_constraints_solver = install;
+        self
+    }
+
     pub fn make(self) -> GraphSchedulerPlugin<LOCKING> {
         let Self {
             simulation,
@@ -174,6 +191,8 @@ impl<const LOCKING: bool> PhysicsPlugin<LOCKING> {
             install_collect_contacts,
             install_dispatch_contact_events,
             repulsive_collision_callbacks,
+            install_dampening_solver,
+            install_distance_constraints_solver,
         } = self;
 
         GraphSchedulerPlugin::<LOCKING>::default()
@@ -256,11 +275,32 @@ impl<const LOCKING: bool> PhysicsPlugin<LOCKING> {
             .plugin_setup(|plugin| {
                 plugin
                     .name("pre_solvers")
+                    .maybe_setup(|plugin| {
+                        if install_dampening_solver {
+                            Some(plugin.system_setup(dampening_solver::<LOCKING>, |system| {
+                                system.name("dampening_solver")
+                            }))
+                        } else {
+                            None
+                        }
+                    })
                     .system_setup(cache_current_as_previous_state::<LOCKING>, |system| {
                         system.name("cache_current_as_previous_state")
                     })
             })
-            .plugin_setup(|plugin| plugin.name("solvers"))
+            .plugin_setup(|plugin| {
+                plugin.name("solvers").maybe_setup(|plugin| {
+                    if install_distance_constraints_solver {
+                        Some(
+                            plugin.system_setup(solve_distance_constraint::<LOCKING>, |system| {
+                                system.name("solve_distance_constraint")
+                            }),
+                        )
+                    } else {
+                        None
+                    }
+                })
+            })
             .plugin_setup(|plugin| {
                 plugin
                     .name("post_solvers")

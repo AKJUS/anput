@@ -12,11 +12,11 @@ use anput::{
     universe::Universe,
 };
 use anput_physics::{
-    PhysicsPlugin,
+    PhysicsPlugin, PhysicsSimulation,
     collisions::{CollisionMask, CollisionProfile, ContactDetection},
     components::{
         BodyDensityFieldRelation, BodyParentRelation, BodyParticleRelation, ExternalForces,
-        LinearVelocity, Mass, PhysicsBody, PhysicsParticle, Position,
+        LinearVelocity, Mass, ParticleMaterial, PhysicsBody, PhysicsParticle, Position,
     },
     density_fields::{DensityFieldBox, aabb::AabbDensityField, sphere::SphereDensityField},
     queries::shape::ShapeOverlapQuery,
@@ -41,7 +41,7 @@ use spitfire_glow::{
 };
 use spitfire_gui::{context::GuiContext, interactions::GuiInteractionsInputs};
 use spitfire_input::{
-    ArrayInputCombinator, CardinalInputCombinator, InputActionRef, InputAxisRef, InputConsume,
+    ArrayInputCombinator, DualInputCombinator, InputActionRef, InputAxisRef, InputConsume,
     InputContext, InputMapping, VirtualAction, VirtualAxis,
 };
 use std::{
@@ -51,6 +51,7 @@ use std::{
 };
 
 pub const PIXEL_SIZE: u32 = 10;
+const MAX_FRAME_DURATION: Duration = Duration::from_millis(500);
 
 pub struct Game {
     universe: Universe,
@@ -125,15 +126,12 @@ impl AppState<Vertex> for Game {
         let pointer_trigger = InputActionRef::default();
         let movement_left = InputActionRef::default();
         let movement_right = InputActionRef::default();
-        let movement_up = InputActionRef::default();
-        let movement_down = InputActionRef::default();
+        let jump = InputActionRef::default();
+        let reset = InputActionRef::default();
 
-        inputs.movement = CardinalInputCombinator::new(
-            movement_left.clone(),
-            movement_right.clone(),
-            movement_up.clone(),
-            movement_down.clone(),
-        );
+        inputs.movement = DualInputCombinator::new(movement_left.clone(), movement_right.clone());
+        inputs.jump = jump.clone();
+        inputs.reset = reset.clone();
         gui.interactions.inputs = GuiInteractionsInputs {
             pointer_position: ArrayInputCombinator::new([pointer_x.clone(), pointer_y.clone()]),
             pointer_trigger: pointer_trigger.clone(),
@@ -161,14 +159,7 @@ impl AppState<Vertex> for Game {
                     VirtualAction::KeyButton(VirtualKeyCode::D),
                     movement_right.clone(),
                 )
-                .action(
-                    VirtualAction::KeyButton(VirtualKeyCode::W),
-                    movement_up.clone(),
-                )
-                .action(
-                    VirtualAction::KeyButton(VirtualKeyCode::S),
-                    movement_down.clone(),
-                )
+                .action(VirtualAction::KeyButton(VirtualKeyCode::Space), jump)
                 .action(
                     VirtualAction::KeyButton(VirtualKeyCode::Left),
                     movement_left,
@@ -177,11 +168,7 @@ impl AppState<Vertex> for Game {
                     VirtualAction::KeyButton(VirtualKeyCode::Right),
                     movement_right,
                 )
-                .action(VirtualAction::KeyButton(VirtualKeyCode::Up), movement_up)
-                .action(
-                    VirtualAction::KeyButton(VirtualKeyCode::Down),
-                    movement_down,
-                ),
+                .action(VirtualAction::KeyButton(VirtualKeyCode::R), reset),
         );
 
         #[cfg(debug_assertions)]
@@ -215,19 +202,26 @@ impl AppState<Vertex> for Game {
             .with_plugin(
                 GraphSchedulerPlugin::<true>::default()
                     .name("root")
-                    .plugin(GraphSchedulerPlugin::<true>::default().name("update"))
+                    .plugin(
+                        GraphSchedulerPlugin::<true>::default()
+                            .name("update")
+                            .system_setup(control_player, |system| system.name("control_player")),
+                    )
                     .plugin(
                         GraphSchedulerPlugin::<true>::default()
                             .name("fixed-step-update")
                             .plugin(
                                 PhysicsPlugin::<true>::default()
+                                    .simulation(PhysicsSimulation {
+                                        gravity: Vec3::new(0.0, 100.0, 0.0),
+                                        ..Default::default()
+                                    })
                                     .shape_overlap_query(ShapeOverlapQuery {
                                         voxelization_size_limit: (PIXEL_SIZE * 3) as f32,
                                         ..Default::default()
                                     })
                                     .make(),
-                            )
-                            .system_setup(control_player, |system| system.name("control_player")),
+                            ),
                     )
                     .plugin(
                         GraphSchedulerPlugin::<true>::default()
@@ -284,6 +278,7 @@ impl AppState<Vertex> for Game {
                 Position::new(Vec3::new(0.0, 0.0, 0.0)),
                 LinearVelocity::default(),
                 ExternalForces::default(),
+                ParticleMaterial::default(),
                 Rgba::<f32>::yellow(),
                 Visible,
                 PlayerControlled,
@@ -328,6 +323,12 @@ impl AppState<Vertex> for Game {
 
         {
             let mut clock = self.universe.resources.get_mut::<true, Clock>().unwrap();
+            if self.fixed_step_timer.elapsed() > MAX_FRAME_DURATION {
+                self.fixed_step_timer = Instant::now() - MAX_FRAME_DURATION;
+            }
+            if self.variable_step_timer.elapsed() > MAX_FRAME_DURATION {
+                self.variable_step_timer = Instant::now() - MAX_FRAME_DURATION;
+            }
             clock.fixed_step_timer = self.fixed_step_timer;
             clock.variable_step_timer = self.variable_step_timer;
             self.variable_step_timer = Instant::now();
@@ -363,6 +364,17 @@ impl AppState<Vertex> for Game {
 
         if self.fixed_step_timer.elapsed().as_millis() > 1000 / 30 {
             self.fixed_step_timer = Instant::now();
+            self.universe
+                .resources
+                .get_mut::<true, PhysicsSimulation>()
+                .unwrap()
+                .delta_time = self
+                .universe
+                .resources
+                .get::<true, Clock>()
+                .unwrap()
+                .fixed_step_elapsed()
+                .as_secs_f32();
 
             self.scheduler
                 .run_system(
@@ -544,5 +556,7 @@ impl Clock {
 
 #[derive(Default)]
 pub struct Inputs {
-    pub movement: CardinalInputCombinator,
+    pub movement: DualInputCombinator,
+    pub jump: InputActionRef,
+    pub reset: InputActionRef,
 }

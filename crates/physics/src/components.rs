@@ -225,16 +225,35 @@ pub struct Gravity {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PhysicsMaterial {
+pub struct BodyMaterial {
     pub friction: Scalar,
     pub restitution: Scalar,
 }
 
-impl Default for PhysicsMaterial {
+impl Default for BodyMaterial {
     fn default() -> Self {
         Self {
             friction: 0.5,
             restitution: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParticleMaterial {
+    pub linear_damping: Scalar,
+    pub angular_damping: Scalar,
+    pub linear_rest_threshold: Scalar,
+    pub angular_rest_threshold: Scalar,
+}
+
+impl Default for ParticleMaterial {
+    fn default() -> Self {
+        Self {
+            linear_damping: 0.9,
+            angular_damping: 0.9,
+            linear_rest_threshold: 0.05,
+            angular_rest_threshold: 0.05,
         }
     }
 }

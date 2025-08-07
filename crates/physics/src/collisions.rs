@@ -1,8 +1,8 @@
 use crate::{
     PhysicsAccessView, PhysicsSimulation, Scalar,
     components::{
-        AngularVelocity, BodyAccessInfo, BodyParentRelation, BodyParticleRelation, LinearVelocity,
-        Mass, PhysicsBody, PhysicsParticle, Position, Rotation,
+        AngularVelocity, BodyAccessInfo, BodyMaterial, BodyParentRelation, BodyParticleRelation,
+        LinearVelocity, Mass, PhysicsBody, PhysicsParticle, Position, Rotation,
     },
     density_fields::{DensityField, DensityFieldBox},
     queries::shape::{ShapeOverlapCell, ShapeOverlapQuery},
@@ -335,6 +335,7 @@ struct Contact {
     bodies: [Entity; 2],
     density_fields: [Entity; 2],
     overlap_region: Aabb<Scalar>,
+    movement_since_last_step: Vec3<Scalar>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -343,6 +344,7 @@ pub struct DensityFieldContact<'a> {
     pub bodies: [Entity; 2],
     pub density_fields: [Entity; 2],
     pub overlap_region: Aabb<Scalar>,
+    pub movement_since_last_step: Vec3<Scalar>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -387,6 +389,7 @@ pub struct ContactsCache {
     blocking_contacts: HashMap<EntityPair, Contact>,
     saved_overlapping_contacts: HashMap<EntityPair, Contact>,
     saved_blocking_contacts: HashMap<EntityPair, Contact>,
+    saved_contact_center_of_mass: HashMap<EntityPair, Vec3<Scalar>>,
     contacts_began: HashSet<EntityPair>,
     contacts_ended: HashSet<EntityPair>,
 }
@@ -406,18 +409,38 @@ impl ContactsCache {
         self.blocking_contacts.clear();
         self.saved_overlapping_contacts.clear();
         self.saved_blocking_contacts.clear();
+        self.saved_contact_center_of_mass.clear();
         self.contacts_began.clear();
         self.contacts_ended.clear();
     }
 
     pub fn begin_contacts_update(&mut self) {
-        self.cells.clear();
+        self.saved_contact_center_of_mass.clear();
+        self.saved_contact_center_of_mass.extend(
+            self.overlapping_contacts
+                .iter()
+                .chain(self.blocking_contacts.iter())
+                .map(|(pair, contact)| {
+                    (
+                        *pair,
+                        self.cells[contact.cells_range.clone()]
+                            .iter()
+                            .map(|cell| cell.region.center())
+                            .sum::<Vec3<Scalar>>()
+                            / contact.cells_range.len() as Scalar,
+                    )
+                }),
+        );
+
         self.saved_overlapping_contacts.clear();
         self.saved_overlapping_contacts
             .extend(self.overlapping_contacts.drain());
+
         self.saved_blocking_contacts.clear();
         self.saved_blocking_contacts
             .extend(self.blocking_contacts.drain());
+
+        self.cells.clear();
     }
 
     pub fn end_contacts_update(&mut self) {
@@ -484,9 +507,23 @@ impl ContactsCache {
         self.blocking_contacts.contains_key(&pair)
     }
 
-    pub fn has_contact(&self, a: Entity, b: Entity) -> bool {
+    pub fn has_contact_between(&self, a: Entity, b: Entity) -> bool {
         let pair = EntityPair::new(a, b);
         self.overlapping_contacts.contains_key(&pair) || self.blocking_contacts.contains_key(&pair)
+    }
+
+    pub fn has_blocking_contact_of(&self, entity: Entity) -> bool {
+        self.blocking_contacts.keys().any(|pair| pair.has(entity))
+    }
+
+    pub fn has_overlapping_contact_of(&self, entity: Entity) -> bool {
+        self.overlapping_contacts
+            .keys()
+            .any(|pair| pair.has(entity))
+    }
+
+    pub fn has_any_contact_of(&self, entity: Entity) -> bool {
+        self.has_blocking_contact_of(entity) || self.has_overlapping_contact_of(entity)
     }
 
     pub fn overlapping_contact_between(&self, a: Entity, b: Entity) -> Option<DensityFieldContact> {
@@ -498,6 +535,7 @@ impl ContactsCache {
                 bodies: contact.bodies,
                 density_fields: contact.density_fields,
                 overlap_region: contact.overlap_region,
+                movement_since_last_step: contact.movement_since_last_step,
             })
     }
 
@@ -510,6 +548,7 @@ impl ContactsCache {
                 bodies: contact.bodies,
                 density_fields: contact.density_fields,
                 overlap_region: contact.overlap_region,
+                movement_since_last_step: contact.movement_since_last_step,
             })
     }
 
@@ -530,6 +569,7 @@ impl ContactsCache {
                 bodies: contact.bodies,
                 density_fields: contact.density_fields,
                 overlap_region: contact.overlap_region,
+                movement_since_last_step: contact.movement_since_last_step,
             })
     }
 
@@ -545,6 +585,7 @@ impl ContactsCache {
                 bodies: contact.bodies,
                 density_fields: contact.density_fields,
                 overlap_region: contact.overlap_region,
+                movement_since_last_step: contact.movement_since_last_step,
             })
     }
 
@@ -564,6 +605,7 @@ impl ContactsCache {
                 bodies: contact.bodies,
                 density_fields: contact.density_fields,
                 overlap_region: contact.overlap_region,
+                movement_since_last_step: contact.movement_since_last_step,
             })
     }
 
@@ -575,6 +617,7 @@ impl ContactsCache {
                 bodies: contact.bodies,
                 density_fields: contact.density_fields,
                 overlap_region: contact.overlap_region,
+                movement_since_last_step: contact.movement_since_last_step,
             })
     }
 
@@ -675,11 +718,22 @@ pub fn collect_contacts<const LOCKING: bool>(context: SystemContext) -> Result<(
             };
             let end = contacts.cells.len();
             if end > start {
+                let center_of_mass = contacts.cells[start..end]
+                    .iter()
+                    .map(|cell| cell.region.center())
+                    .sum::<Vec3<Scalar>>()
+                    / (end - start) as Scalar;
+                let prev_center_of_mass = contacts
+                    .saved_contact_center_of_mass
+                    .get(&pair)
+                    .copied()
+                    .unwrap_or(center_of_mass);
                 let contact = Contact {
                     cells_range: start..end,
                     bodies: [a.geom().body_entity, b.geom().body_entity],
                     density_fields: [a.data, b.data],
                     overlap_region,
+                    movement_since_last_step: center_of_mass - prev_center_of_mass,
                 };
                 if is_blocking {
                     contacts.blocking_contacts.insert(pair, contact);
@@ -819,6 +873,7 @@ pub fn dispatch_contact_events<const LOCKING: bool>(
 pub struct RepulsiveCollisionCorrection<'a> {
     pub linear_correction: &'a mut Vec3<Scalar>,
     pub angular_correction: &'a mut Vec3<Scalar>,
+    pub contact_normal: Vec3<Scalar>,
     pub position: &'a Position,
     pub rotation: Option<&'a Rotation>,
     pub contact: DensityFieldContact<'a>,
@@ -830,8 +885,8 @@ pub struct RepulsiveCollisionCorrection<'a> {
 
 pub struct RepulsiveCollisionModifier<'a> {
     pub penetration: &'a mut Scalar,
-    pub normal: &'a mut Vec3<Scalar>,
     pub point: &'a mut Vec3<Scalar>,
+    pub contact_normal: Vec3<Scalar>,
     pub position: &'a Position,
     pub rotation: Option<&'a Rotation>,
     pub contact: DensityFieldContact<'a>,
@@ -885,6 +940,7 @@ impl RepulsiveCollisionCallbacks {
         let RepulsiveCollisionCorrection {
             linear_correction,
             angular_correction,
+            contact_normal,
             position,
             rotation,
             contact,
@@ -898,6 +954,7 @@ impl RepulsiveCollisionCallbacks {
             callback(RepulsiveCollisionCorrection {
                 linear_correction,
                 angular_correction,
+                contact_normal,
                 position,
                 rotation,
                 contact,
@@ -916,8 +973,8 @@ impl RepulsiveCollisionCallbacks {
 
         let RepulsiveCollisionModifier {
             penetration,
-            normal,
             point,
+            contact_normal,
             position,
             rotation,
             contact,
@@ -929,8 +986,8 @@ impl RepulsiveCollisionCallbacks {
         for callback in &self.modifiers {
             callback(RepulsiveCollisionModifier {
                 penetration,
-                normal,
                 point,
+                contact_normal,
                 position,
                 rotation,
                 contact,
@@ -957,6 +1014,7 @@ impl<const LOCKING: bool> System for RepulsiveCollisionSolver<LOCKING> {
                     (
                         Option<&Relation<BodyParticleRelation>>,
                         Option<&Mass>,
+                        Option<&BodyMaterial>,
                         Include<PhysicsBody>,
                     ),
                 >,
@@ -986,10 +1044,10 @@ impl<const LOCKING: bool> System for RepulsiveCollisionSolver<LOCKING> {
             let body_access = contact
                 .bodies
                 .map(|entity| body_lookup_access.access(entity));
-            let Some((relations_a, mass_a, _)) = body_access[0] else {
+            let Some((relations_a, mass_a, material_a, _)) = body_access[0] else {
                 continue;
             };
-            let Some((relations_b, mass_b, _)) = body_access[1] else {
+            let Some((relations_b, mass_b, material_b, _)) = body_access[1] else {
                 continue;
             };
             if (mass_a.is_none() && mass_b.is_none())
@@ -1001,6 +1059,10 @@ impl<const LOCKING: bool> System for RepulsiveCollisionSolver<LOCKING> {
             let inverse_mass_a = mass_a.map(|mass| mass.inverse()).unwrap_or_default();
             let inverse_mass_b = mass_b.map(|mass| mass.inverse()).unwrap_or_default();
             let inverse_mass = [inverse_mass_a, inverse_mass_b];
+
+            let material_a = material_a.copied().unwrap_or_default();
+            let material_b = material_b.copied().unwrap_or_default();
+            let material = [material_a, material_b];
 
             let weight_a = inverse_mass_a / (inverse_mass_a + inverse_mass_b);
             let weight_b = 1.0 - weight_a;
@@ -1025,10 +1087,18 @@ impl<const LOCKING: bool> System for RepulsiveCollisionSolver<LOCKING> {
 
                 let mut linear_correction = Vec3::<Scalar>::zero();
                 let mut angular_correction = Vec3::<Scalar>::zero();
+                let contact_normal = contact
+                    .cells
+                    .iter()
+                    .map(|cell| cell.normal[body_index])
+                    .sum::<Vec3<Scalar>>()
+                    .try_normalized()
+                    .unwrap_or_default();
 
                 callbacks.run_corrections(RepulsiveCollisionCorrection {
                     linear_correction: &mut linear_correction,
                     angular_correction: &mut angular_correction,
+                    contact_normal,
                     position,
                     rotation: rotation.as_deref(),
                     contact,
@@ -1054,9 +1124,24 @@ impl<const LOCKING: bool> System for RepulsiveCollisionSolver<LOCKING> {
                         }
                     }
                 }
+
+                let relative_velocity =
+                    linear_velocity.value - contact.movement_since_last_step * inverse_delta_time;
+                let normal_velocity = relative_velocity.dot(contact_normal);
+                let tangent_velocity = relative_velocity - contact_normal * normal_velocity;
+
+                let restitution = material[body_index].restitution;
+                let impulse = -normal_velocity * (1.0 - restitution);
+                linear_velocity.value += contact_normal * impulse;
+                // TODO: angular velocity.
+
+                let friction = material[body_index].friction;
+                let friction_direction = -tangent_velocity.try_normalized().unwrap_or_default();
+                let friction_magnitude = friction * normal_velocity.abs();
+                linear_velocity.value += friction_direction * friction_magnitude;
+                // TODO: angular velocity.
             }
         }
-
         Ok(())
     }
 }
@@ -1065,6 +1150,7 @@ pub fn default_repulsive_collision_correction(correction: RepulsiveCollisionCorr
     let RepulsiveCollisionCorrection {
         linear_correction,
         angular_correction,
+        contact_normal,
         position,
         rotation,
         contact,
@@ -1074,20 +1160,13 @@ pub fn default_repulsive_collision_correction(correction: RepulsiveCollisionCorr
         callbacks,
     } = correction;
 
-    let mut normal = contact
-        .cells
-        .iter()
-        .map(|cell| cell.normal[body_index])
-        .sum::<Vec3<Scalar>>()
-        .try_normalized()
-        .unwrap_or_default();
     let mut penetration = 0.0;
     let mut total_area = 0.0;
     let mut response_normal = Vec3::<Scalar>::zero();
     let mut center_of_mass = Vec3::<Scalar>::zero();
     for cell in contact.cells {
         let area = cell.area();
-        penetration += Vec3::from(cell.region.size()).dot(normal).abs() * area;
+        penetration += Vec3::from(cell.region.size()).dot(contact_normal).abs() * area;
         total_area += area;
         response_normal += cell.normal_response(body_index);
         center_of_mass += cell.region.center();
@@ -1099,8 +1178,8 @@ pub fn default_repulsive_collision_correction(correction: RepulsiveCollisionCorr
 
     callbacks.run_modifiers(RepulsiveCollisionModifier {
         penetration: &mut penetration,
-        normal: &mut normal,
         point: &mut point,
+        contact_normal,
         position,
         rotation,
         contact,

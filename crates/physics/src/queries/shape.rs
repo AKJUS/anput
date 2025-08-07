@@ -73,7 +73,7 @@ impl ShapeOverlapQuery {
             let normal =
                 [0, 1].map(|index| field[index].normal_at_point(center, resolution, info[index]));
             // TODO: remove?
-            // potentially wrong way to compensate for shapes not reporting normals.
+            // potentially wrong way to compensate for shapes not reporting valid normals.
             let normal = match normal.map(|normal| normal.is_approx_zero()) {
                 [true, true] | [false, false] => normal,
                 [true, false] => [-normal[1], normal[1]],

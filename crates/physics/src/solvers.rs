@@ -1,7 +1,8 @@
 use crate::{
     PhysicsSimulation, Scalar,
     components::{
-        AngularVelocity, ExternalForces, Gravity, LinearVelocity, Mass, Position, Rotation,
+        AngularVelocity, ExternalForces, Gravity, LinearVelocity, Mass, ParticleMaterial, Position,
+        Rotation,
     },
     utils::quat_from_axis_angle,
 };
@@ -137,6 +138,37 @@ pub fn apply_gravity<const LOCKING: bool>(context: SystemContext) -> Result<(), 
     for (gravity, external_forces) in query.query(world) {
         let gravity = gravity.map(|v| v.value).unwrap_or(simulation.gravity);
         external_forces.accumulate_linear_impulse(gravity * simulation.delta_time);
+    }
+
+    Ok(())
+}
+
+pub fn dampening_solver<const LOCKING: bool>(context: SystemContext) -> Result<(), Box<dyn Error>> {
+    let (world, query) = context.fetch::<(
+        &World,
+        Query<LOCKING, (&mut Position, Option<&mut Rotation>, &ParticleMaterial)>,
+    )>()?;
+
+    for (position, rotation, material) in query.query(world) {
+        let mut delta = position.change();
+        delta *= material.linear_damping;
+        if delta.magnitude_squared()
+            < material.linear_rest_threshold * material.linear_rest_threshold
+        {
+            delta = Default::default();
+        }
+        position.current = position.previous() + delta;
+
+        if let Some(rotation) = rotation {
+            let delta = rotation.change();
+            let (mut angle, axis) = delta.into_angle_axis();
+            angle *= material.angular_damping;
+            if angle.abs() < material.angular_rest_threshold {
+                angle = Default::default();
+            }
+            let delta = quat_from_axis_angle(axis, angle);
+            rotation.current = (rotation.previous() * delta).normalized();
+        }
     }
 
     Ok(())

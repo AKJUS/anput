@@ -1,12 +1,12 @@
 [package]
 name = "demo"
-version = "0.17.0"
+version = "0.18.0"
 edition = "2024"
 publish = false
 
 [dependencies]
-anput = { version = "0.17", path = "../crates/_" }
-anput-physics = { version = "0.17", path = "../crates/physics" }
+anput = { version = "0.18", path = "../crates/_" }
+anput-physics = { version = "0.18", path = "../crates/physics" }
 spitfire-core = "0.36"
 spitfire-glow = "0.36"
 spitfire-fontdue = "0.36"

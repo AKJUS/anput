@@ -64,6 +64,7 @@ pub fn solve_distance_constraint<const LOCKING: bool>(
         constraint.lambda += lambda;
         from_position.current -= impulse * from_weight;
         to_position.current += impulse * to_weight;
+
         if let Some(from_rotation) = from_rotation {
             let angular_correction = normal.cross(-impulse) * from_weight;
             let angle = angular_correction.magnitude();
