@@ -2,6 +2,7 @@ use crate::{
     bundle::DynamicBundle,
     component::Component,
     entity::Entity,
+    query::TypedLookupFetch,
     resources::Resources,
     systems::{System, SystemContext, SystemObject, Systems},
     universe::{Plugin, Universe},
@@ -14,8 +15,9 @@ use std::{
     collections::HashSet,
     error::Error,
     ops::{Deref, Range},
-    sync::RwLock,
-    time::{Duration, Instant},
+    sync::{Arc, mpsc::Sender},
+    thread::{ThreadId, current},
+    time::{Duration, Instant, SystemTime},
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -58,6 +60,9 @@ impl SystemInjectInto {
             .filter(|s| !s.is_empty())
     }
 }
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SystemAsRoot;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SystemPriority(pub usize);
@@ -139,42 +144,293 @@ impl Iterator for SystemSubstepsIter {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraphSchedulerDiagnosticsEvent {
+    RunBegin {
+        timestamp: SystemTime,
+        thread_id: ThreadId,
+    },
+    RunEnd {
+        timestamp: SystemTime,
+        thread_id: ThreadId,
+    },
+    GroupBegin {
+        timestamp: SystemTime,
+        thread_id: ThreadId,
+        entity: Entity,
+        name: Option<SystemName>,
+    },
+    GroupEnd {
+        timestamp: SystemTime,
+        thread_id: ThreadId,
+        entity: Entity,
+        name: Option<SystemName>,
+    },
+    SystemBegin {
+        timestamp: SystemTime,
+        thread_id: ThreadId,
+        entity: Entity,
+        name: Option<SystemName>,
+    },
+    SystemEnd {
+        timestamp: SystemTime,
+        thread_id: ThreadId,
+        entity: Entity,
+        name: Option<SystemName>,
+    },
+    UserBegin {
+        timestamp: SystemTime,
+        thread_id: ThreadId,
+        name: String,
+        payload: String,
+    },
+    UserEnd {
+        timestamp: SystemTime,
+        thread_id: ThreadId,
+        name: String,
+        payload: String,
+    },
+    UserInstant {
+        timestamp: SystemTime,
+        thread_id: ThreadId,
+        name: String,
+        payload: String,
+    },
+}
+
 #[derive(Default)]
 pub struct GraphScheduler<const LOCKING: bool> {
-    jobs: Jobs,
+    pub diagnostics: Option<Arc<Sender<GraphSchedulerDiagnosticsEvent>>>,
 }
 
 impl<const LOCKING: bool> GraphScheduler<LOCKING> {
-    pub fn new(jobs: Jobs) -> Self {
-        Self { jobs }
+    pub fn with_diagnostics(
+        mut self,
+        diagnostics: Arc<Sender<GraphSchedulerDiagnosticsEvent>>,
+    ) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self
     }
 
-    pub fn run(&mut self, universe: &mut Universe) -> Result<(), Box<dyn Error>> {
-        let mut visited = HashSet::with_capacity(universe.systems.len());
-        let roots = Self::find_roots(&universe.systems);
-        Self::validate_no_cycles(universe, roots.iter().copied(), &mut visited)?;
-        visited.clear();
-        let visited = RwLock::new(visited);
-        self.run_group(
-            universe,
-            roots.into_iter(),
-            &visited,
-            SystemSubsteps::default(),
-        )?;
-        self.jobs.run_local();
+    pub fn maintenance(jobs: &Jobs, universe: &mut Universe) {
+        jobs.run_local();
         universe.clear_changes();
         universe.execute_commands::<LOCKING>();
+    }
+
+    pub fn run(&self, jobs: &Jobs, universe: &mut Universe) -> Result<(), Box<dyn Error>> {
+        self.run_systems(
+            jobs,
+            universe,
+            Self::collect_roots(&universe.systems),
+            SystemSubsteps::default(),
+        )?;
+        Self::maintenance(jobs, universe);
         Ok(())
     }
 
-    fn find_roots(systems: &Systems) -> HashSet<Entity> {
-        let mut entities = systems.entities().collect::<HashSet<_>>();
-        for relations in systems.query::<LOCKING, &Relation<SystemGroupChild>>() {
-            for entity in relations.entities() {
-                entities.remove(&entity);
+    pub fn run_systems(
+        &self,
+        jobs: &Jobs,
+        universe: &Universe,
+        systems: HashSet<Entity>,
+        substeps: SystemSubsteps,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(diagnostics) = &self.diagnostics {
+            let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::RunBegin {
+                timestamp: SystemTime::now(),
+                thread_id: current().id(),
+            });
+        }
+        let mut visited = HashSet::with_capacity(universe.systems.len());
+        Self::validate_no_cycles(universe, systems.iter().copied(), &mut visited)?;
+        let result = self.run_group(jobs, universe, systems.into_iter(), substeps);
+        if let Some(diagnostics) = &self.diagnostics {
+            let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::RunEnd {
+                timestamp: SystemTime::now(),
+                thread_id: current().id(),
+            });
+        }
+        result?;
+        Ok(())
+    }
+
+    pub fn run_system(
+        &self,
+        jobs: &Jobs,
+        universe: &Universe,
+        system: Entity,
+        substeps: SystemSubsteps,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(diagnostics) = &self.diagnostics {
+            let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::RunBegin {
+                timestamp: SystemTime::now(),
+                thread_id: current().id(),
+            });
+        }
+        let mut visited = HashSet::with_capacity(universe.systems.len());
+        Self::validate_no_cycles(universe, std::iter::once(system), &mut visited)?;
+        let result = self.run_group(jobs, universe, std::iter::once(system), substeps);
+        if let Some(diagnostics) = &self.diagnostics {
+            let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::RunEnd {
+                timestamp: SystemTime::now(),
+                thread_id: current().id(),
+            });
+        }
+        result?;
+        Ok(())
+    }
+
+    fn run_node<'env>(
+        &'env self,
+        jobs: &'env Jobs,
+        universe: &'env Universe,
+        entity: Entity,
+        scoped_jobs: &mut ScopedJobs<'env, Result<(), String>>,
+    ) -> Result<(), Box<dyn Error>> {
+        let job = move || -> Result<(), String> {
+            if let Ok(system) = universe.systems.component::<LOCKING, SystemObject>(entity) {
+                if system.should_run(SystemContext::new(universe, entity)) {
+                    if let Some(diagnostics) = &self.diagnostics {
+                        let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::SystemBegin {
+                            timestamp: SystemTime::now(),
+                            thread_id: current().id(),
+                            entity,
+                            name: universe
+                                .systems
+                                .component::<LOCKING, SystemName>(entity)
+                                .ok()
+                                .as_deref()
+                                .cloned(),
+                        });
+                    }
+                    let result = system
+                        .run(SystemContext::new(universe, entity))
+                        .map_err(|error| format!("{error}"));
+                    if let Some(diagnostics) = &self.diagnostics {
+                        let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::SystemEnd {
+                            timestamp: SystemTime::now(),
+                            thread_id: current().id(),
+                            entity,
+                            name: universe
+                                .systems
+                                .component::<LOCKING, SystemName>(entity)
+                                .ok()
+                                .as_deref()
+                                .cloned(),
+                        });
+                    }
+                    result?;
+                }
+            }
+            let Some(group_children) = universe
+                .systems
+                .lookup_one::<true, &Relation<SystemGroupChild>>(entity)
+            else {
+                return Ok(());
+            };
+            if group_children.is_empty() {
+                return Ok(());
+            }
+            let substeps = universe
+                .systems
+                .component::<LOCKING, SystemSubsteps>(entity)
+                .map(|substeps| *substeps)
+                .unwrap_or_default();
+            if let Some(diagnostics) = &self.diagnostics {
+                let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::GroupBegin {
+                    timestamp: SystemTime::now(),
+                    thread_id: current().id(),
+                    entity,
+                    name: universe
+                        .systems
+                        .component::<LOCKING, SystemName>(entity)
+                        .ok()
+                        .as_deref()
+                        .cloned(),
+                });
+            }
+            let result = self
+                .run_group(jobs, universe, group_children.entities(), substeps)
+                .map_err(|error| format!("{error}"));
+            if let Some(diagnostics) = &self.diagnostics {
+                let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::GroupEnd {
+                    timestamp: SystemTime::now(),
+                    thread_id: current().id(),
+                    entity,
+                    name: universe
+                        .systems
+                        .component::<LOCKING, SystemName>(entity)
+                        .ok()
+                        .as_deref()
+                        .cloned(),
+                });
+            }
+            result?;
+            Ok(())
+        };
+        if let Ok(parallelize) = universe
+            .systems
+            .component::<LOCKING, SystemParallelize>(entity)
+        {
+            match &*parallelize {
+                SystemParallelize::AnyWorker => {
+                    scoped_jobs
+                        .queue_on(JobLocation::NonLocal, JobPriority::Normal, move |_| job())?
+                }
+                SystemParallelize::NamedWorker(cow) => scoped_jobs.queue_on(
+                    JobLocation::named_worker(cow.as_ref()),
+                    JobPriority::Normal,
+                    move |_| job(),
+                )?,
+            }
+        } else {
+            job()?;
+        }
+        Ok(())
+    }
+
+    fn run_group(
+        &self,
+        jobs: &Jobs,
+        universe: &Universe,
+        entities: impl Iterator<Item = Entity>,
+        substeps: SystemSubsteps,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut ordered = entities
+            .map(|entity| {
+                let priority = universe
+                    .systems
+                    .component::<LOCKING, SystemPriority>(entity)
+                    .ok()
+                    .map(|priority| *priority)
+                    .unwrap_or_default();
+                let order = universe
+                    .systems
+                    .component::<LOCKING, SystemOrder>(entity)
+                    .ok()
+                    .map(|order| *order)
+                    .unwrap_or_default();
+                (entity, priority, order)
+            })
+            .collect::<Vec<_>>();
+        ordered.sort_by(|(_, priority_a, order_a), (_, priority_b, order_b)| {
+            priority_a
+                .cmp(priority_b)
+                .reverse()
+                .then(order_a.cmp(order_b))
+        });
+
+        for _ in substeps.iter() {
+            let mut scoped_jobs = ScopedJobs::new(jobs);
+            for (entity, _, _) in ordered.iter().copied() {
+                self.run_node(jobs, universe, entity, &mut scoped_jobs)?;
+            }
+            for result in scoped_jobs.execute() {
+                result?;
             }
         }
-        entities
+        Ok(())
     }
 
     fn validate_no_cycles(
@@ -203,102 +459,31 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
         Ok(())
     }
 
-    fn run_node<'env>(
-        &'env self,
-        universe: &'env Universe,
-        entity: Entity,
-        visited: &'env RwLock<HashSet<Entity>>,
-        scoped_jobs: &mut ScopedJobs<'env, Result<(), String>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let mut visited_lock = visited.write().unwrap();
-        if visited_lock.contains(&entity) {
-            return Ok(());
-        }
-        visited_lock.insert(entity);
-        drop(visited_lock);
-        let job = move || -> Result<(), String> {
-            if let Ok(system) = universe.systems.component::<LOCKING, SystemObject>(entity) {
-                if system.should_run(SystemContext::new(universe, entity)) {
-                    system
-                        .run(SystemContext::new(universe, entity))
-                        .map_err(|error| format!("{error}"))?;
-                }
+    pub fn collect_roots(systems: &Systems) -> HashSet<Entity> {
+        let mut entities = systems.entities().collect::<HashSet<_>>();
+        for relations in systems.query::<LOCKING, &Relation<SystemGroupChild>>() {
+            for entity in relations.entities() {
+                entities.remove(&entity);
             }
-            let substeps = universe
-                .systems
-                .component::<LOCKING, SystemSubsteps>(entity)
-                .map(|substeps| *substeps)
-                .unwrap_or_default();
-            let entities = universe
-                .systems
-                .relations_outgoing::<LOCKING, SystemGroupChild>(entity)
-                .map(|(_, _, entity)| entity);
-            self.run_group(universe, entities, visited, substeps)
-                .map_err(|error| format!("{error}"))?;
-            Ok(())
-        };
-        if let Ok(parallelize) = universe
-            .systems
-            .component::<LOCKING, SystemParallelize>(entity)
-        {
-            match &*parallelize {
-                SystemParallelize::AnyWorker => {
-                    scoped_jobs
-                        .queue_on(JobLocation::NonLocal, JobPriority::Normal, move |_| job())?
-                }
-                SystemParallelize::NamedWorker(cow) => scoped_jobs.queue_on(
-                    JobLocation::named_worker(cow.as_ref()),
-                    JobPriority::Normal,
-                    move |_| job(),
-                )?,
-            }
-        } else {
-            job()?;
         }
-        Ok(())
+        entities
     }
 
-    fn run_group(
-        &self,
-        universe: &Universe,
-        entities: impl Iterator<Item = Entity>,
-        visited: &RwLock<HashSet<Entity>>,
-        substeps: SystemSubsteps,
-    ) -> Result<(), Box<dyn Error>> {
-        let mut ordered = entities
-            .map(|entity| {
-                let priority = universe
-                    .systems
-                    .component::<LOCKING, SystemPriority>(entity)
-                    .ok()
-                    .map(|priority| *priority)
-                    .unwrap_or_default();
-                let order = universe
-                    .systems
-                    .component::<LOCKING, SystemOrder>(entity)
-                    .ok()
-                    .map(|order| *order)
-                    .unwrap_or_default();
-                (entity, priority, order)
+    pub fn collect_filtered<'a, Fetch: TypedLookupFetch<'a, LOCKING>>(
+        systems: &'a Systems,
+        filter: impl Fn(Fetch::Value) -> bool,
+    ) -> HashSet<Entity> {
+        let mut lookup = systems.lookup_access::<LOCKING, Fetch>();
+        systems
+            .entities()
+            .filter(move |entity| {
+                if let Some(value) = lookup.access(*entity) {
+                    filter(value)
+                } else {
+                    false
+                }
             })
-            .collect::<Vec<_>>();
-        ordered.sort_by(|(_, priority_a, order_a), (_, priority_b, order_b)| {
-            priority_a
-                .cmp(priority_b)
-                .reverse()
-                .then(order_a.cmp(order_b))
-        });
-
-        for _ in substeps.iter() {
-            let mut scoped_jobs = ScopedJobs::new(&self.jobs);
-            for (entity, _, _) in ordered.iter().copied() {
-                self.run_node(universe, entity, visited, &mut scoped_jobs)?;
-            }
-            for result in scoped_jobs.execute() {
-                result?;
-            }
-        }
-        Ok(())
+            .collect::<HashSet<_>>()
     }
 }
 
@@ -425,11 +610,14 @@ impl<const LOCKING: bool> GraphSchedulerPlugin<LOCKING> {
         systems: &mut Systems,
         resources: &mut Resources,
     ) {
-        let parent = self
+        let mut parent = self
             .locals
             .remove_component::<SystemInjectInto>()
             .and_then(|v| Self::find_system_by_path(systems, v.as_str()))
             .or(parent);
+        if self.locals.remove_component::<SystemAsRoot>().is_some() {
+            parent = None;
+        }
         if self.locals.is_empty() {
             self.locals.add_component(()).unwrap();
         }
@@ -466,7 +654,7 @@ impl<const LOCKING: bool> GraphSchedulerPlugin<LOCKING> {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>();
-        for entity in GraphScheduler::<LOCKING>::find_roots(systems) {
+        for entity in GraphScheduler::<LOCKING>::collect_roots(systems) {
             if let Some(found) = Self::find_system_inner(systems, entity, &parts) {
                 return Some(found);
             }

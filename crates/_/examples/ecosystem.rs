@@ -8,6 +8,7 @@ use anput::{
     universe::{Res, Universe},
     world::World,
 };
+use anput_jobs::Jobs;
 use rand::{Rng, rng};
 use std::{
     error::Error,
@@ -91,9 +92,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     Systems::run_one_shot::<true>(&universe, init)?;
-    let mut scheduler = GraphScheduler::<true>::default();
+
+    let jobs = Jobs::default();
+    let scheduler = GraphScheduler::<true>::default();
     loop {
-        scheduler.run(&mut universe)?;
+        scheduler.run(&jobs, &mut universe)?;
         sleep(Duration::from_millis(500));
     }
 }

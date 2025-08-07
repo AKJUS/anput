@@ -3,6 +3,7 @@ use anput::{
     query::Include,
     scheduler::{GraphScheduler, GraphSchedulerPlugin},
     systems::SystemContext,
+    third_party::anput_jobs::Jobs,
     universe::{Res, Universe},
     world::World,
 };
@@ -34,8 +35,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .spawn((Spatial, Vec2::<f32>::new(-4.0, 0.0)))?;
 
     // Run single simulation frame.
-    let mut scheduler = GraphScheduler::<true>::default();
-    scheduler.run(&mut universe)?;
+    let jobs = Jobs::default();
+    let scheduler = GraphScheduler::<true>::default();
+    scheduler.run(&jobs, &mut universe)?;
 
     Ok(())
 }

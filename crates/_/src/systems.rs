@@ -91,7 +91,7 @@ impl<const LOCKING: bool> System for ScriptedFunctionSystem<LOCKING> {
         let entity = DynamicManaged::new(context.entity()).map_err::<Box<dyn Error>, _>(|_| {
             "Could not make managed object out of entity!".into()
         })?;
-        let (universe, _) = DynamicManagedRef::make(context.universe);
+        let (universe, _universe_lifetime) = DynamicManagedRef::make(context.universe);
         ctx.stack().push(entity);
         ctx.stack().push(universe);
         self.run.invoke(&mut ctx, &registry);
@@ -153,7 +153,7 @@ impl<const LOCKING: bool> System for ScriptedObjectSystem<LOCKING> {
                 DynamicManaged::new(context.entity()).map_err::<Box<dyn Error>, _>(|_| {
                     "Could not make managed object out of entity!".into()
                 })?;
-            let (universe, _) = DynamicManagedRef::make(context.universe);
+            let (universe, _universe_lifetime) = DynamicManagedRef::make(context.universe);
             let this = self
                 .object
                 .borrow()
@@ -185,20 +185,6 @@ impl SystemObject {
     }
 
     pub fn try_run(&self, context: SystemContext) -> Result<(), Box<dyn Error>> {
-        self.0.try_run(context)
-    }
-}
-
-impl System for SystemObject {
-    fn run(&self, context: SystemContext) -> Result<(), Box<dyn Error>> {
-        self.0.run(context)
-    }
-
-    fn should_run(&self, context: SystemContext) -> bool {
-        self.0.should_run(context)
-    }
-
-    fn try_run(&self, context: SystemContext) -> Result<(), Box<dyn Error>> {
         self.0.try_run(context)
     }
 }

@@ -3,6 +3,7 @@ use anput::{
     systems::SystemContext,
     universe::{Res, Universe},
 };
+use anput_jobs::Jobs;
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -31,11 +32,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .system_setup(increase_heat, |system| system.name("increase_heat"))
             }),
     );
+    // Create jobs runner.
+    let jobs = Jobs::default();
     // Create a scheduler instance that will run universe systems.
-    let mut scheduler = GraphScheduler::<true>::default();
+    let scheduler = GraphScheduler::<true>::default();
 
     // Perform single frame universe systems run.
-    scheduler.run(&mut universe)?;
+    scheduler.run(&jobs, &mut universe)?;
 
     Ok(())
 }

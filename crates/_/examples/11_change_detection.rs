@@ -7,6 +7,7 @@ use anput::{
     universe::{Res, Universe},
     world::World,
 };
+use anput_jobs::Jobs;
 use rand::{Rng, rng};
 use std::error::Error;
 
@@ -33,11 +34,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             .system_setup(spawn_monster, |system| system.name("spawn_monster"))
             .system_setup(stats_react, |system| system.name("stats_react")),
     );
-    let mut scheduler = GraphScheduler::<true>::default();
+    let jobs = Jobs::default();
+    let scheduler = GraphScheduler::<true>::default();
 
     for index in 0..10 {
         println!("* Iteration: {index}");
-        scheduler.run(&mut universe)?;
+        scheduler.run(&jobs, &mut universe)?;
     }
 
     Ok(())

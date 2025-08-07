@@ -7,6 +7,7 @@ use anput::{
     universe::{Res, Universe},
     world::{Relation, World},
 };
+use anput_jobs::Jobs;
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -51,7 +52,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 system.name("reproduce").local(SystemParallelize::AnyWorker)
             }),
     );
-    let mut scheduler = GraphScheduler::<true>::default();
+    let jobs = Jobs::default();
+    let scheduler = GraphScheduler::<true>::default();
 
     // Spawn first tree that will start chain of new generations.
     universe.simulation.spawn((
@@ -63,7 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Run few frames to get few generations.
     for _ in 0..5 {
-        scheduler.run(&mut universe)?;
+        scheduler.run(&jobs, &mut universe)?;
     }
 
     // Report forest population.

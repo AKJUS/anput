@@ -5,6 +5,7 @@ use anput::{
     universe::{Local, Universe},
     world::World,
 };
+use anput_jobs::Jobs;
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -22,7 +23,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             .system_setup(training, |system| system.name("training").local(Boost(1)))
             .system_setup(report, |system| system.name("report").local(())),
     );
-    let mut scheduler = GraphScheduler::<true>::default();
+    let jobs = Jobs::default();
+    let scheduler = GraphScheduler::<true>::default();
 
     // Setup heroes.
     universe.simulation.spawn((XP(5), Level(1)))?;
@@ -30,7 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Run 10 frames of simulation.
     for _ in 0..10 {
-        scheduler.run(&mut universe)?;
+        scheduler.run(&jobs, &mut universe)?;
     }
 
     Ok(())

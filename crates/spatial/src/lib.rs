@@ -18,7 +18,7 @@ pub fn make_plugin<const LOCKING: bool, Extractor: SpatialExtractor>()
     GraphSchedulerPlugin::<LOCKING>::default()
         .resource(SpatialPartitioning::<Extractor>::default())
         .system_setup(spatial_partitioning::<LOCKING, Extractor>, |system| {
-            system.local(format!(
+            system.name(format!(
                 "spatial_partitioning:{}",
                 std::any::type_name::<Extractor>()
             ))

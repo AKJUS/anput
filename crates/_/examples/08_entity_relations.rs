@@ -5,6 +5,7 @@ use anput::{
     universe::Universe,
     world::{Relation, World},
 };
+use anput_jobs::Jobs;
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -28,7 +29,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             .system_setup(attack, |system| system.name("attack"))
             .system_setup(report_alive, |system| system.name("report_alive")),
     );
-    let mut scheduler = GraphScheduler::<true>::default();
+    let jobs = Jobs::default();
+    let scheduler = GraphScheduler::<true>::default();
 
     // Setup hero and monsters.
     let hero = universe.simulation.spawn((Hero,))?;
@@ -49,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     universe.simulation.relate::<true, _>(Pet, wolf, hero)?;
     universe.simulation.relate::<true, _>(Pet, rabbit, hero)?;
 
-    scheduler.run(&mut universe)?;
+    scheduler.run(&jobs, &mut universe)?;
 
     Ok(())
 }

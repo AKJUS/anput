@@ -5,6 +5,7 @@ use anput::{
     systems::SystemContext,
     universe::{Res, Universe},
 };
+use anput_jobs::Jobs;
 use rand::{Rng, rng};
 use std::error::Error;
 
@@ -25,7 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 system.name("spawn_temperature_change")
             }),
     );
-    let mut scheduler = GraphScheduler::<true>::default();
+    let jobs = Jobs::default();
+    let scheduler = GraphScheduler::<true>::default();
 
     let temperature = universe.simulation.spawn((Temperature::default(),))?;
 
@@ -51,7 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for index in 0..10 {
         println!("* Iteration: {index}");
-        scheduler.run(&mut universe)?;
+        scheduler.run(&jobs, &mut universe)?;
         observer.process_execute(&mut universe.simulation);
 
         let temperature = universe

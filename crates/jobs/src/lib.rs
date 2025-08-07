@@ -781,7 +781,7 @@ impl JobsWaker {
         None
     }
 
-    pub fn diagnostics_user_event(&self, payload: String) {
+    pub fn diagnostics_user_event(&self, payload: String, duration: Option<Duration>) {
         if let Some(diagnostics) = self.diagnostics.as_ref() {
             let _ = diagnostics.send(JobsDiagnosticsEvent::UserEvent {
                 timestamp: SystemTime::now(),
@@ -790,6 +790,7 @@ impl JobsWaker {
                 context: self.context,
                 priority: self.priority,
                 thread_id: std::thread::current().id(),
+                duration,
                 payload,
             });
         }
@@ -827,6 +828,7 @@ pub enum JobsDiagnosticsEvent {
         context: JobContext,
         priority: JobPriority,
         thread_id: ThreadId,
+        duration: Option<Duration>,
         payload: String,
     },
 }
@@ -838,7 +840,7 @@ pub struct Jobs {
     hash_tokens: Arc<Mutex<HashSet<u64>>>,
     /// (ready, cond var)
     notify: Arc<(Mutex<bool>, Condvar)>,
-    diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
+    pub diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
 }
 
 impl Drop for Jobs {
@@ -1395,6 +1397,10 @@ mod tests {
 
     #[test]
     fn test_jobs() {
+        fn is_async<T: Send + Sync>() {}
+
+        is_async::<Jobs>();
+
         let jobs = Jobs::default();
         let data = (0..100).collect::<Vec<_>>();
         let data2 = data.clone();

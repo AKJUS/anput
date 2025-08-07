@@ -19,11 +19,43 @@ pub trait UniverseFetch<'a> {
     fn fetch(universe: &'a Universe, system: Entity) -> Result<Self::Value, Box<dyn Error>>;
 }
 
+impl UniverseFetch<'_> for Entity {
+    type Value = Entity;
+
+    fn fetch(_: &Universe, entity: Entity) -> Result<Self::Value, Box<dyn Error>> {
+        Ok(entity)
+    }
+}
+
+impl<'a> UniverseFetch<'a> for &'a Universe {
+    type Value = &'a Universe;
+
+    fn fetch(universe: &'a Universe, _: Entity) -> Result<Self::Value, Box<dyn Error>> {
+        Ok(universe)
+    }
+}
+
 impl<'a> UniverseFetch<'a> for &'a World {
     type Value = &'a World;
 
     fn fetch(universe: &'a Universe, _: Entity) -> Result<Self::Value, Box<dyn Error>> {
         Ok(&universe.simulation)
+    }
+}
+
+impl<'a> UniverseFetch<'a> for &'a Resources {
+    type Value = &'a Resources;
+
+    fn fetch(universe: &'a Universe, _: Entity) -> Result<Self::Value, Box<dyn Error>> {
+        Ok(&universe.resources)
+    }
+}
+
+impl<'a> UniverseFetch<'a> for &'a Systems {
+    type Value = &'a Systems;
+
+    fn fetch(universe: &'a Universe, _: Entity) -> Result<Self::Value, Box<dyn Error>> {
+        Ok(&universe.systems)
     }
 }
 

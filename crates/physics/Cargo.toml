@@ -1,18 +1,17 @@
 [package]
-name = "anput-spatial"
+name = "anput-physics"
 version = "0.17.0"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
-description = "Spatial queries plugin for Anput ECS"
+description = "Physics plugin for Anput ECS"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/PsichiX/anput"
 repository = "https://github.com/PsichiX/anput"
-documentation = "https://docs.rs/anput-spatial"
+documentation = "https://docs.rs/anput-physics"
 readme = "../../README.md"
 
 [dependencies]
 anput = { version = "0.17", path = "../_" }
-rstar = "0.12"
-
-[dev-dependencies]
+anput-spatial = { version = "0.17", path = "../spatial" }
 vek = "0.17"
+serde = { version = "1", features = ["derive"] }
