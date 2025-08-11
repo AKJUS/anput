@@ -79,10 +79,10 @@ impl<T: Clone + Send> EventDispatcher<T> {
             let _ = sender.send(event.clone());
         }
         for (_, queue) in &self.sinks {
-            if let Some(queue) = queue.upgrade() {
-                if let Ok(mut queue) = queue.lock() {
-                    queue.push_back(event.clone());
-                }
+            if let Some(queue) = queue.upgrade()
+                && let Ok(mut queue) = queue.lock()
+            {
+                queue.push_back(event.clone());
             }
         }
     }

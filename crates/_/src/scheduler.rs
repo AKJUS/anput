@@ -211,25 +211,25 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
         scoped_jobs: &mut ScopedJobs<'env, Result<(), String>>,
     ) -> Result<(), Box<dyn Error>> {
         let job = move || -> Result<(), String> {
-            if let Ok(system) = universe.systems.component::<LOCKING, SystemObject>(entity) {
-                if system.should_run(SystemContext::new(universe, entity)) {
-                    #[cfg(feature = "tracing")]
-                    let _span = tracing::span!(
-                        tracing::Level::TRACE,
-                        "Execute system",
-                        thread_id = format!("{:?}", std::thread::current().id()),
-                        entity = entity.to_string(),
-                        name = universe
-                            .systems
-                            .component::<LOCKING, SystemName>(entity)
-                            .ok()
-                            .map(|name| name.to_string()),
-                    )
-                    .entered();
-                    system
-                        .run(SystemContext::new(universe, entity))
-                        .map_err(|error| format!("{error}"))?;
-                }
+            if let Ok(system) = universe.systems.component::<LOCKING, SystemObject>(entity)
+                && system.should_run(SystemContext::new(universe, entity))
+            {
+                #[cfg(feature = "tracing")]
+                let _span = tracing::span!(
+                    tracing::Level::TRACE,
+                    "Execute system",
+                    thread_id = format!("{:?}", std::thread::current().id()),
+                    entity = entity.to_string(),
+                    name = universe
+                        .systems
+                        .component::<LOCKING, SystemName>(entity)
+                        .ok()
+                        .map(|name| name.to_string()),
+                )
+                .entered();
+                system
+                    .run(SystemContext::new(universe, entity))
+                    .map_err(|error| format!("{error}"))?;
             }
             let Some(group_children) = universe
                 .systems

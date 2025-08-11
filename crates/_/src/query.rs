@@ -1872,7 +1872,7 @@ impl<'a, const LOCKING: bool> DynamicLookupAccess<'a, LOCKING> {
         }
     }
 
-    pub fn access(&self, entity: Entity) -> Option<DynamicQueryItem> {
+    pub fn access(&'_ self, entity: Entity) -> Option<DynamicQueryItem<'_>> {
         let columns = self
             .columns
             .iter()

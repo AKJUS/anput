@@ -472,18 +472,18 @@ impl<'a> Multiverse<'a> {
     }
 
     pub fn component<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         multity: Multity,
-    ) -> Result<HyperComponentRef<LOCKING, T>, WorldError> {
+    ) -> Result<HyperComponentRef<'_, LOCKING, T>, WorldError> {
         Ok(HyperComponentRef {
             inner: self.get::<LOCKING, T>(multity, false)?,
         })
     }
 
     pub fn component_mut<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         multity: Multity,
-    ) -> Result<HyperComponentRefMut<LOCKING, T>, WorldError> {
+    ) -> Result<HyperComponentRefMut<'_, LOCKING, T>, WorldError> {
         Ok(HyperComponentRefMut {
             inner: self.get::<LOCKING, T>(multity, true)?,
         })
@@ -524,11 +524,11 @@ impl<'a> Multiverse<'a> {
     }
 
     pub fn dynamic_get<const LOCKING: bool>(
-        &self,
+        &'_ self,
         type_hash: TypeHash,
         multity: Multity,
         unique: bool,
-    ) -> Result<ArchetypeDynamicMultityColumnAccess<LOCKING>, WorldError> {
+    ) -> Result<ArchetypeDynamicMultityColumnAccess<'_, LOCKING>, WorldError> {
         let mut worlds =
             Vec::<ArchetypeEntityColumnAccess<LOCKING, World>>::with_capacity(multity.len());
         let mut iter = multity.iter().peekable();

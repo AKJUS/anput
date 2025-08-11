@@ -76,8 +76,8 @@ impl Resources {
     }
 
     pub fn ensure<const LOCKING: bool, T: Component + Default>(
-        &mut self,
-    ) -> Result<ComponentRefMut<LOCKING, T>, Box<dyn Error>> {
+        &'_ mut self,
+    ) -> Result<ComponentRefMut<'_, LOCKING, T>, Box<dyn Error>> {
         if !self.world.has_entity_component::<T>(self.entity) {
             self.world.insert(self.entity, (T::default(),))?;
         }
@@ -85,14 +85,14 @@ impl Resources {
     }
 
     pub fn get<const LOCKING: bool, T: Component>(
-        &self,
-    ) -> Result<ComponentRef<LOCKING, T>, Box<dyn Error>> {
+        &'_ self,
+    ) -> Result<ComponentRef<'_, LOCKING, T>, Box<dyn Error>> {
         Ok(self.world.component(self.entity)?)
     }
 
     pub fn get_mut<const LOCKING: bool, T: Component>(
-        &self,
-    ) -> Result<ComponentRefMut<LOCKING, T>, Box<dyn Error>> {
+        &'_ self,
+    ) -> Result<ComponentRefMut<'_, LOCKING, T>, Box<dyn Error>> {
         Ok(self.world.component_mut(self.entity)?)
     }
 

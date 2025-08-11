@@ -80,15 +80,15 @@ impl Actor {
 
     pub fn component<const LOCKING: bool, T: Component>(
         self,
-        world: &World,
-    ) -> Result<ComponentRef<LOCKING, T>, WorldError> {
+        world: &'_ World,
+    ) -> Result<ComponentRef<'_, LOCKING, T>, WorldError> {
         world.component::<LOCKING, T>(self.0)
     }
 
     pub fn component_mut<const LOCKING: bool, T: Component>(
         self,
-        world: &World,
-    ) -> Result<ComponentRefMut<LOCKING, T>, WorldError> {
+        world: &'_ World,
+    ) -> Result<ComponentRefMut<'_, LOCKING, T>, WorldError> {
         world.component_mut::<LOCKING, T>(self.0)
     }
 

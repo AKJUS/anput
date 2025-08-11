@@ -526,7 +526,11 @@ impl ContactsCache {
         self.has_blocking_contact_of(entity) || self.has_overlapping_contact_of(entity)
     }
 
-    pub fn overlapping_contact_between(&self, a: Entity, b: Entity) -> Option<DensityFieldContact> {
+    pub fn overlapping_contact_between(
+        &'_ self,
+        a: Entity,
+        b: Entity,
+    ) -> Option<DensityFieldContact<'_>> {
         let pair = EntityPair::new(a, b);
         self.overlapping_contacts
             .get(&pair)
@@ -539,7 +543,11 @@ impl ContactsCache {
             })
     }
 
-    pub fn blocking_contact_between(&self, a: Entity, b: Entity) -> Option<DensityFieldContact> {
+    pub fn blocking_contact_between(
+        &'_ self,
+        a: Entity,
+        b: Entity,
+    ) -> Option<DensityFieldContact<'_>> {
         let pair = EntityPair::new(a, b);
         self.blocking_contacts
             .get(&pair)
@@ -552,15 +560,15 @@ impl ContactsCache {
             })
     }
 
-    pub fn any_contact_between(&self, a: Entity, b: Entity) -> Option<DensityFieldContact> {
+    pub fn any_contact_between(&'_ self, a: Entity, b: Entity) -> Option<DensityFieldContact<'_>> {
         self.overlapping_contact_between(a, b)
             .or_else(|| self.blocking_contact_between(a, b))
     }
 
     pub fn overlapping_contacts_of(
-        &self,
+        &'_ self,
         entity: Entity,
-    ) -> impl Iterator<Item = DensityFieldContact> + '_ {
+    ) -> impl Iterator<Item = DensityFieldContact<'_>> + '_ {
         self.overlapping_contacts
             .iter()
             .filter(move |(pair, _)| pair.has(entity))
@@ -574,9 +582,9 @@ impl ContactsCache {
     }
 
     pub fn blocking_contacts_of(
-        &self,
+        &'_ self,
         entity: Entity,
-    ) -> impl Iterator<Item = DensityFieldContact> + '_ {
+    ) -> impl Iterator<Item = DensityFieldContact<'_>> + '_ {
         self.blocking_contacts
             .iter()
             .filter(move |(pair, _)| pair.has(entity))
@@ -590,14 +598,14 @@ impl ContactsCache {
     }
 
     pub fn any_contacts_of(
-        &self,
+        &'_ self,
         entity: Entity,
-    ) -> impl Iterator<Item = DensityFieldContact> + '_ {
+    ) -> impl Iterator<Item = DensityFieldContact<'_>> + '_ {
         self.overlapping_contacts_of(entity)
             .chain(self.blocking_contacts_of(entity))
     }
 
-    pub fn overlapping_contacts(&self) -> impl Iterator<Item = DensityFieldContact> + '_ {
+    pub fn overlapping_contacts(&'_ self) -> impl Iterator<Item = DensityFieldContact<'_>> + '_ {
         self.overlapping_contacts
             .values()
             .map(move |contact| DensityFieldContact {
@@ -609,7 +617,7 @@ impl ContactsCache {
             })
     }
 
-    pub fn blocking_contacts(&self) -> impl Iterator<Item = DensityFieldContact> + '_ {
+    pub fn blocking_contacts(&'_ self) -> impl Iterator<Item = DensityFieldContact<'_>> + '_ {
         self.blocking_contacts
             .values()
             .map(move |contact| DensityFieldContact {
@@ -621,7 +629,7 @@ impl ContactsCache {
             })
     }
 
-    pub fn any_contacts(&self) -> impl Iterator<Item = DensityFieldContact> + '_ {
+    pub fn any_contacts(&'_ self) -> impl Iterator<Item = DensityFieldContact<'_>> + '_ {
         self.overlapping_contacts().chain(self.blocking_contacts())
     }
 }

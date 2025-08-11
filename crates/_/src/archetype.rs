@@ -413,7 +413,10 @@ impl<'a, const LOCKING: bool> ArchetypeDynamicColumnAccess<'a, LOCKING> {
         }
     }
 
-    pub fn dynamic_item(&self, index: usize) -> Result<ArchetypeDynamicColumnItem, ArchetypeError> {
+    pub fn dynamic_item(
+        &'_ self,
+        index: usize,
+    ) -> Result<ArchetypeDynamicColumnItem<'_>, ArchetypeError> {
         let memory = unsafe { self.data(index)? };
         Ok(ArchetypeDynamicColumnItem {
             memory,
@@ -1114,56 +1117,56 @@ impl Column {
     }
 
     unsafe fn column_access<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         unique: bool,
         size: usize,
-    ) -> Result<ArchetypeColumnAccess<LOCKING, T>, ArchetypeError> {
+    ) -> Result<ArchetypeColumnAccess<'_, LOCKING, T>, ArchetypeError> {
         unsafe { ArchetypeColumnAccess::new(self, unique, size) }
     }
 
     fn dynamic_column_access<const LOCKING: bool>(
-        &self,
+        &'_ self,
         unique: bool,
         size: usize,
-    ) -> Result<ArchetypeDynamicColumnAccess<LOCKING>, ArchetypeError> {
+    ) -> Result<ArchetypeDynamicColumnAccess<'_, LOCKING>, ArchetypeError> {
         ArchetypeDynamicColumnAccess::new(self, unique, size)
     }
 
     unsafe fn entity_access<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         unique: bool,
         index: usize,
-    ) -> Result<ArchetypeEntityColumnAccess<LOCKING, T>, ArchetypeError> {
+    ) -> Result<ArchetypeEntityColumnAccess<'_, LOCKING, T>, ArchetypeError> {
         unsafe { ArchetypeEntityColumnAccess::new(self, unique, index) }
     }
 
     fn dynamic_entity_access<const LOCKING: bool>(
-        &self,
+        &'_ self,
         unique: bool,
         index: usize,
-    ) -> Result<ArchetypeDynamicEntityColumnAccess<LOCKING>, ArchetypeError> {
+    ) -> Result<ArchetypeDynamicEntityColumnAccess<'_, LOCKING>, ArchetypeError> {
         ArchetypeDynamicEntityColumnAccess::new(self, unique, index)
     }
 
     fn column_read_iter<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         size: usize,
-    ) -> Result<ArchetypeColumnReadIter<T>, ArchetypeError> {
+    ) -> Result<ArchetypeColumnReadIter<'_, T>, ArchetypeError> {
         ArchetypeColumnReadIter::new::<LOCKING>(self, size)
     }
 
     fn column_write_iter<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         size: usize,
-    ) -> Result<ArchetypeColumnWriteIter<LOCKING, T>, ArchetypeError> {
+    ) -> Result<ArchetypeColumnWriteIter<'_, LOCKING, T>, ArchetypeError> {
         ArchetypeColumnWriteIter::new(self, size)
     }
 
     fn dynamic_column_iter<const LOCKING: bool>(
-        &self,
+        &'_ self,
         unique: bool,
         size: usize,
-    ) -> Result<ArchetypeDynamicColumnIter<LOCKING>, ArchetypeError> {
+    ) -> Result<ArchetypeDynamicColumnIter<'_, LOCKING>, ArchetypeError> {
         ArchetypeDynamicColumnIter::new(self, unique, size)
     }
 }
@@ -1446,7 +1449,10 @@ impl Archetype {
         Ok(())
     }
 
-    pub fn add(&mut self, entity: Entity) -> Result<ArchetypeEntityRowAccess, ArchetypeError> {
+    pub fn add(
+        &'_ mut self,
+        entity: Entity,
+    ) -> Result<ArchetypeEntityRowAccess<'_>, ArchetypeError> {
         self.validate_sdir()?;
         if self.size == self.capacity {
             self.capacity *= 2;
@@ -1604,9 +1610,9 @@ impl Archetype {
     }
 
     pub fn column<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         unique: bool,
-    ) -> Result<ArchetypeColumnAccess<LOCKING, T>, ArchetypeError> {
+    ) -> Result<ArchetypeColumnAccess<'_, LOCKING, T>, ArchetypeError> {
         let type_hash = TypeHash::of::<T>();
         for column in self.columns.as_ref() {
             if column.info.type_hash == type_hash {
@@ -1617,10 +1623,10 @@ impl Archetype {
     }
 
     pub fn dynamic_column<const LOCKING: bool>(
-        &self,
+        &'_ self,
         type_hash: TypeHash,
         unique: bool,
-    ) -> Result<ArchetypeDynamicColumnAccess<LOCKING>, ArchetypeError> {
+    ) -> Result<ArchetypeDynamicColumnAccess<'_, LOCKING>, ArchetypeError> {
         for column in self.columns.as_ref() {
             if column.info.type_hash == type_hash {
                 return column.dynamic_column_access(unique, self.size);
@@ -1630,10 +1636,10 @@ impl Archetype {
     }
 
     pub fn entity<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         entity: Entity,
         unique: bool,
-    ) -> Result<ArchetypeEntityColumnAccess<LOCKING, T>, ArchetypeError> {
+    ) -> Result<ArchetypeEntityColumnAccess<'_, LOCKING, T>, ArchetypeError> {
         let type_hash = TypeHash::of::<T>();
         let index = self
             .entity_dense_map
@@ -1648,11 +1654,11 @@ impl Archetype {
     }
 
     pub fn dynamic_entity<const LOCKING: bool>(
-        &self,
+        &'_ self,
         type_hash: TypeHash,
         entity: Entity,
         unique: bool,
-    ) -> Result<ArchetypeDynamicEntityColumnAccess<LOCKING>, ArchetypeError> {
+    ) -> Result<ArchetypeDynamicEntityColumnAccess<'_, LOCKING>, ArchetypeError> {
         let index = self
             .entity_dense_map
             .index_of(entity)
@@ -1666,9 +1672,9 @@ impl Archetype {
     }
 
     pub fn row<const LOCKING: bool>(
-        &self,
+        &'_ self,
         entity: Entity,
-    ) -> Result<ArchetypeEntityRowAccess, ArchetypeError> {
+    ) -> Result<ArchetypeEntityRowAccess<'_>, ArchetypeError> {
         let index = self
             .entity_dense_map
             .index_of(entity)
@@ -1684,8 +1690,8 @@ impl Archetype {
     }
 
     pub fn column_read_iter<const LOCKING: bool, T: Component>(
-        &self,
-    ) -> Result<ArchetypeColumnReadIter<T>, ArchetypeError> {
+        &'_ self,
+    ) -> Result<ArchetypeColumnReadIter<'_, T>, ArchetypeError> {
         let type_hash = TypeHash::of::<T>();
         for column in self.columns.as_ref() {
             if column.info.type_hash == type_hash {
@@ -1696,8 +1702,8 @@ impl Archetype {
     }
 
     pub fn column_write_iter<const LOCKING: bool, T: Component>(
-        &self,
-    ) -> Result<ArchetypeColumnWriteIter<LOCKING, T>, ArchetypeError> {
+        &'_ self,
+    ) -> Result<ArchetypeColumnWriteIter<'_, LOCKING, T>, ArchetypeError> {
         let type_hash = TypeHash::of::<T>();
         for column in self.columns.as_ref() {
             if column.info.type_hash == type_hash {
@@ -1708,10 +1714,10 @@ impl Archetype {
     }
 
     pub fn dynamic_column_iter<const LOCKING: bool>(
-        &self,
+        &'_ self,
         type_hash: TypeHash,
         unique: bool,
-    ) -> Result<ArchetypeDynamicColumnIter<LOCKING>, ArchetypeError> {
+    ) -> Result<ArchetypeDynamicColumnIter<'_, LOCKING>, ArchetypeError> {
         for column in self.columns.as_ref() {
             if column.info.type_hash == type_hash {
                 return column.dynamic_column_iter(unique, self.size);
@@ -1796,62 +1802,62 @@ impl ArchetypeView {
     }
 
     pub fn column<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         unique: bool,
-    ) -> Result<ArchetypeColumnAccess<LOCKING, T>, ArchetypeError> {
+    ) -> Result<ArchetypeColumnAccess<'_, LOCKING, T>, ArchetypeError> {
         self.archetype.column::<LOCKING, T>(unique)
     }
 
     pub fn dynamic_column<const LOCKING: bool>(
-        &self,
+        &'_ self,
         type_hash: TypeHash,
         unique: bool,
-    ) -> Result<ArchetypeDynamicColumnAccess<LOCKING>, ArchetypeError> {
+    ) -> Result<ArchetypeDynamicColumnAccess<'_, LOCKING>, ArchetypeError> {
         self.archetype.dynamic_column::<LOCKING>(type_hash, unique)
     }
 
     pub fn entity<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         entity: Entity,
         unique: bool,
-    ) -> Result<ArchetypeEntityColumnAccess<LOCKING, T>, ArchetypeError> {
+    ) -> Result<ArchetypeEntityColumnAccess<'_, LOCKING, T>, ArchetypeError> {
         self.archetype.entity::<LOCKING, T>(entity, unique)
     }
 
     pub fn dynamic_entity<const LOCKING: bool>(
-        &self,
+        &'_ self,
         type_hash: TypeHash,
         entity: Entity,
         unique: bool,
-    ) -> Result<ArchetypeDynamicEntityColumnAccess<LOCKING>, ArchetypeError> {
+    ) -> Result<ArchetypeDynamicEntityColumnAccess<'_, LOCKING>, ArchetypeError> {
         self.archetype
             .dynamic_entity::<LOCKING>(type_hash, entity, unique)
     }
 
     pub fn row<const LOCKING: bool>(
-        &self,
+        &'_ self,
         entity: Entity,
-    ) -> Result<ArchetypeEntityRowAccess, ArchetypeError> {
+    ) -> Result<ArchetypeEntityRowAccess<'_>, ArchetypeError> {
         self.archetype.row::<LOCKING>(entity)
     }
 
     pub fn column_read_iter<const LOCKING: bool, T: Component>(
-        &self,
-    ) -> Result<ArchetypeColumnReadIter<T>, ArchetypeError> {
+        &'_ self,
+    ) -> Result<ArchetypeColumnReadIter<'_, T>, ArchetypeError> {
         self.archetype.column_read_iter::<LOCKING, T>()
     }
 
     pub fn column_write_iter<const LOCKING: bool, T: Component>(
-        &self,
-    ) -> Result<ArchetypeColumnWriteIter<LOCKING, T>, ArchetypeError> {
+        &'_ self,
+    ) -> Result<ArchetypeColumnWriteIter<'_, LOCKING, T>, ArchetypeError> {
         self.archetype.column_write_iter::<LOCKING, T>()
     }
 
     pub fn dynamic_column_iter<const LOCKING: bool>(
-        &self,
+        &'_ self,
         type_hash: TypeHash,
         unique: bool,
-    ) -> Result<ArchetypeDynamicColumnIter<LOCKING>, ArchetypeError> {
+    ) -> Result<ArchetypeDynamicColumnIter<'_, LOCKING>, ArchetypeError> {
         self.archetype
             .dynamic_column_iter::<LOCKING>(type_hash, unique)
     }

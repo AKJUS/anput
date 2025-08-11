@@ -350,7 +350,7 @@ impl Prefab {
             .flat_map(|archetype| archetype.entities.iter().copied())
     }
 
-    pub fn rows(&self) -> impl Iterator<Item = PrefabRow> {
+    pub fn rows(&'_ self) -> impl Iterator<Item = PrefabRow<'_>> {
         self.archetypes.iter().flat_map(|archetype| {
             archetype
                 .entities

@@ -22,10 +22,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut rng = rng();
     for source in world.entities().collect::<Vec<_>>() {
         let index = rng.random_range(0..world.len());
-        if let Some(target) = world.entity_by_index(index) {
-            if source != target {
-                world.relate::<true, _>(Next, source, target)?;
-            }
+        if let Some(target) = world.entity_by_index(index)
+            && source != target
+        {
+            world.relate::<true, _>(Next, source, target)?;
         }
     }
 

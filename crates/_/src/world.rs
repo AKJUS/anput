@@ -383,10 +383,10 @@ impl ArchetypeMap {
     /// * `None` - If no archetype matches the provided columns.
     fn find_by_columns_exact(&self, columns: &[ArchetypeColumnInfo]) -> Option<u32> {
         for (id, archetype) in self.table.iter().enumerate() {
-            if let Some(archetype) = archetype.as_ref() {
-                if archetype.has_columns_exact(columns) {
-                    return Some(id as u32);
-                }
+            if let Some(archetype) = archetype.as_ref()
+                && archetype.has_columns_exact(columns)
+            {
+                return Some(id as u32);
             }
         }
         None
@@ -861,7 +861,7 @@ impl World {
         &self.removed
     }
 
-    pub fn updated(&self) -> Option<RwLockReadGuard<WorldChanges>> {
+    pub fn updated(&'_ self) -> Option<RwLockReadGuard<'_, WorldChanges>> {
         self.updated.try_read().ok()
     }
 
@@ -1008,16 +1008,16 @@ impl World {
 
     /// # Safety
     pub unsafe fn spawn_uninitialized<T: BundleColumns>(
-        &mut self,
-    ) -> Result<(Entity, ArchetypeEntityRowAccess), WorldError> {
+        &'_ mut self,
+    ) -> Result<(Entity, ArchetypeEntityRowAccess<'_>), WorldError> {
         unsafe { self.spawn_uninitialized_raw(T::columns_static()) }
     }
 
     /// # Safety
     pub unsafe fn spawn_uninitialized_raw(
-        &mut self,
+        &'_ mut self,
         columns: Vec<ArchetypeColumnInfo>,
-    ) -> Result<(Entity, ArchetypeEntityRowAccess), WorldError> {
+    ) -> Result<(Entity, ArchetypeEntityRowAccess<'_>), WorldError> {
         if columns.is_empty() {
             return Err(WorldError::EmptyColumnSet);
         }
@@ -1343,28 +1343,28 @@ impl World {
     }
 
     pub fn component<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         entity: Entity,
-    ) -> Result<ComponentRef<LOCKING, T>, WorldError> {
+    ) -> Result<ComponentRef<'_, LOCKING, T>, WorldError> {
         Ok(ComponentRef {
             inner: self.get::<LOCKING, T>(entity, false)?,
         })
     }
 
     pub fn component_mut<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         entity: Entity,
-    ) -> Result<ComponentRefMut<LOCKING, T>, WorldError> {
+    ) -> Result<ComponentRefMut<'_, LOCKING, T>, WorldError> {
         Ok(ComponentRefMut {
             inner: self.get::<LOCKING, T>(entity, true)?,
         })
     }
 
     pub fn get<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         entity: Entity,
         unique: bool,
-    ) -> Result<ArchetypeEntityColumnAccess<LOCKING, T>, WorldError> {
+    ) -> Result<ArchetypeEntityColumnAccess<'_, LOCKING, T>, WorldError> {
         Ok(self
             .archetypes
             .get(self.entities.get(entity)?)?
@@ -1372,11 +1372,11 @@ impl World {
     }
 
     pub fn dynamic_get<const LOCKING: bool>(
-        &self,
+        &'_ self,
         type_hash: TypeHash,
         entity: Entity,
         unique: bool,
-    ) -> Result<ArchetypeDynamicEntityColumnAccess<LOCKING>, WorldError> {
+    ) -> Result<ArchetypeDynamicEntityColumnAccess<'_, LOCKING>, WorldError> {
         Ok(self
             .archetypes
             .get(self.entities.get(entity)?)?
@@ -1384,9 +1384,9 @@ impl World {
     }
 
     pub fn row<const LOCKING: bool>(
-        &self,
+        &'_ self,
         entity: Entity,
-    ) -> Result<ArchetypeEntityRowAccess, WorldError> {
+    ) -> Result<ArchetypeEntityRowAccess<'_>, WorldError> {
         Ok(self
             .archetypes
             .get(self.entities.get(entity)?)?
@@ -1647,9 +1647,9 @@ impl World {
     }
 
     pub fn traverse_outgoing<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         entities: impl IntoIterator<Item = Entity>,
-    ) -> RelationsTraverseIter<LOCKING, T> {
+    ) -> RelationsTraverseIter<'_, LOCKING, T> {
         RelationsTraverseIter {
             world: self,
             incoming: false,
@@ -1660,9 +1660,9 @@ impl World {
     }
 
     pub fn traverse_incoming<const LOCKING: bool, T: Component>(
-        &self,
+        &'_ self,
         entities: impl IntoIterator<Item = Entity>,
-    ) -> RelationsTraverseIter<LOCKING, T> {
+    ) -> RelationsTraverseIter<'_, LOCKING, T> {
         RelationsTraverseIter {
             world: self,
             incoming: true,

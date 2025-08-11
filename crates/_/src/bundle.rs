@@ -101,7 +101,7 @@ impl DynamicBundle {
         &self.components
     }
 
-    pub fn component<T: Component>(&self) -> Option<ValueReadAccess<T>> {
+    pub fn component<T: Component>(&'_ self) -> Option<ValueReadAccess<'_, T>> {
         self.component_raw(TypeHash::of::<T>())
             .and_then(|c| c.read())
     }
@@ -110,7 +110,7 @@ impl DynamicBundle {
         self.components.iter().find(|c| c.type_hash() == &type_hash)
     }
 
-    pub fn component_mut<T: Component>(&mut self) -> Option<ValueWriteAccess<T>> {
+    pub fn component_mut<T: Component>(&'_ mut self) -> Option<ValueWriteAccess<'_, T>> {
         self.component_mut_raw(TypeHash::of::<T>())
             .and_then(|c| c.write())
     }
