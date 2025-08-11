@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Create jobs runner.
     let jobs = Jobs::default();
     // Create a scheduler instance that will run universe systems.
-    let scheduler = GraphScheduler::<true>::default();
+    let scheduler = GraphScheduler::<true>;
 
     // Perform single frame universe systems run.
     scheduler.run(&jobs, &mut universe)?;

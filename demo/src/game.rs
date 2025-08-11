@@ -1,9 +1,10 @@
 use crate::{
     components::{PlayerControlled, Visible},
-    control_player::control_player,
-    diagnostics::ChromeTracing,
-    renderers::{
-        contacts_renderer::render_contacts, density_field_renderer::render_density_fields,
+    systems::{
+        contacts_renderer::render_contacts,
+        control_bodies::{SpawnBodies, control_bodies},
+        control_player::control_player,
+        density_field_renderer::render_density_fields,
     },
 };
 use anput::{
@@ -39,16 +40,12 @@ use spitfire_glow::{
     graphics::{Graphics, Shader},
     renderer::{GlowBlending, GlowTextureFiltering},
 };
-use spitfire_gui::{context::GuiContext, interactions::GuiInteractionsInputs};
+use spitfire_gui::context::GuiContext;
 use spitfire_input::{
     ArrayInputCombinator, DualInputCombinator, InputActionRef, InputAxisRef, InputConsume,
     InputContext, InputMapping, VirtualAction, VirtualAxis,
 };
-use std::{
-    fs::File,
-    sync::{Arc, mpsc::channel},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 pub const PIXEL_SIZE: u32 = 10;
 const MAX_FRAME_DURATION: Duration = Duration::from_millis(500);
@@ -60,8 +57,6 @@ pub struct Game {
     fixed_step_timer: Instant,
     variable_step_timer: Instant,
     exit_game: InputActionRef,
-    #[cfg(debug_assertions)]
-    tracing: Option<ChromeTracing>,
 }
 
 impl Default for Game {
@@ -73,23 +68,12 @@ impl Default for Game {
             fixed_step_timer: Instant::now(),
             variable_step_timer: Instant::now(),
             exit_game: Default::default(),
-            #[cfg(debug_assertions)]
-            tracing: None,
         }
     }
 }
 
 impl AppState<Vertex> for Game {
     fn on_init(&mut self, graphics: &mut Graphics<Vertex>, _: &mut AppControl) {
-        #[cfg(debug_assertions)]
-        let (jobs_sender, scheduler_sender) = {
-            let file = File::create("./trace.json").unwrap();
-            let (jobs_sender, jobs_receiver) = channel();
-            let (scheduler_sender, scheduler_receiver) = channel();
-            self.tracing = Some(ChromeTracing::new(file, jobs_receiver, scheduler_receiver));
-            (jobs_sender, scheduler_sender)
-        };
-
         graphics.state.color = [0.15, 0.15, 0.15, 1.0];
         graphics.state.main_camera.screen_alignment = 0.5.into();
 
@@ -129,14 +113,17 @@ impl AppState<Vertex> for Game {
         let jump = InputActionRef::default();
         let reset = InputActionRef::default();
 
+        inputs.mouse_xy = ArrayInputCombinator::new([pointer_x.clone(), pointer_y.clone()]);
+        inputs.mouse_trigger = pointer_trigger.clone();
         inputs.movement = DualInputCombinator::new(movement_left.clone(), movement_right.clone());
         inputs.jump = jump.clone();
         inputs.reset = reset.clone();
-        gui.interactions.inputs = GuiInteractionsInputs {
-            pointer_position: ArrayInputCombinator::new([pointer_x.clone(), pointer_y.clone()]),
-            pointer_trigger: pointer_trigger.clone(),
-            ..Default::default()
-        };
+
+        // gui.interactions.inputs = GuiInteractionsInputs {
+        //     pointer_position: ArrayInputCombinator::new([pointer_x.clone(), pointer_y.clone()]),
+        //     pointer_trigger: pointer_trigger.clone(),
+        //     ..Default::default()
+        // };
 
         input_context.push_mapping(
             InputMapping::default()
@@ -171,12 +158,6 @@ impl AppState<Vertex> for Game {
                 .action(VirtualAction::KeyButton(VirtualKeyCode::R), reset),
         );
 
-        #[cfg(debug_assertions)]
-        {
-            self.jobs.diagnostics = Some(Arc::new(jobs_sender));
-            self.scheduler.diagnostics = Some(Arc::new(scheduler_sender));
-        }
-
         self.universe = Universe::default()
             .with_basics(10240, 10240)
             .unwrap()
@@ -186,7 +167,7 @@ impl AppState<Vertex> for Game {
             .unwrap()
             .with_resource(SendWrapper::new(gui))
             .unwrap()
-            .with_resource(input_context)
+            .with_resource(SendWrapper::new(input_context))
             .unwrap()
             .with_resource(SendWrapper::new(
                 Pixels::simple(
@@ -205,7 +186,10 @@ impl AppState<Vertex> for Game {
                     .plugin(
                         GraphSchedulerPlugin::<true>::default()
                             .name("update")
-                            .system_setup(control_player, |system| system.name("control_player")),
+                            .system_setup(control_player, |system| system.name("control_player"))
+                            .system_setup(control_bodies, |system| {
+                                system.name("control_bodies").local(SpawnBodies::default())
+                            }),
                     )
                     .plugin(
                         GraphSchedulerPlugin::<true>::default()
@@ -218,6 +202,11 @@ impl AppState<Vertex> for Game {
                                     })
                                     .shape_overlap_query(ShapeOverlapQuery {
                                         voxelization_size_limit: (PIXEL_SIZE * 3) as f32,
+                                        region_limit: Some(Aabb {
+                                            min: Vec3::new(f32::MIN, f32::MIN, 0.0),
+                                            max: Vec3::new(f32::MAX, f32::MAX, 0.0),
+                                        }),
+                                        depth_limit: 0,
                                         ..Default::default()
                                     })
                                     .make(),
@@ -302,11 +291,6 @@ impl AppState<Vertex> for Game {
     }
 
     fn on_redraw(&mut self, graphics: &mut Graphics<Vertex>, control: &mut AppControl) {
-        #[cfg(debug_assertions)]
-        {
-            self.tracing.as_mut().unwrap().frame_begin();
-        }
-
         if self.exit_game.get().is_pressed() {
             control.close_requested = true;
         }
@@ -497,7 +481,7 @@ impl AppState<Vertex> for Game {
 
         self.universe
             .resources
-            .get_mut::<true, InputContext>()
+            .get_mut::<true, SendWrapper<InputContext>>()
             .unwrap()
             .maintain();
 
@@ -510,19 +494,13 @@ impl AppState<Vertex> for Game {
             .unwrap();
 
         GraphScheduler::<true>::maintenance(&self.jobs, &mut self.universe);
-
-        #[cfg(debug_assertions)]
-        {
-            self.tracing.as_mut().unwrap().frame_end();
-            self.tracing.as_mut().unwrap().maintain();
-        }
     }
 
     fn on_event(&mut self, event: Event<()>, _: &mut Window) -> bool {
         if let Event::WindowEvent { event, .. } = event {
             self.universe
                 .resources
-                .get_mut::<true, InputContext>()
+                .get_mut::<true, SendWrapper<InputContext>>()
                 .unwrap()
                 .on_event(&event);
         }
@@ -556,6 +534,8 @@ impl Clock {
 
 #[derive(Default)]
 pub struct Inputs {
+    pub mouse_xy: ArrayInputCombinator<2>,
+    pub mouse_trigger: InputActionRef,
     pub movement: DualInputCombinator,
     pub jump: InputActionRef,
     pub reset: InputActionRef,

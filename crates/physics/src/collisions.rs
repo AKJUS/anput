@@ -1266,7 +1266,7 @@ mod tests {
                 .make(),
         );
         let jobs = Jobs::default();
-        let scheduler = GraphScheduler::<true>::default();
+        let scheduler = GraphScheduler::<true>;
 
         let a = universe.simulation.spawn((
             PhysicsBody,

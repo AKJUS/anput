@@ -161,8 +161,10 @@ pub struct LinearVelocity {
 }
 
 impl LinearVelocity {
-    pub fn new(value: Vec3<Scalar>) -> Self {
-        Self { value }
+    pub fn new(value: impl Into<Vec3<Scalar>>) -> Self {
+        Self {
+            value: value.into(),
+        }
     }
 }
 
@@ -173,8 +175,10 @@ pub struct AngularVelocity {
 }
 
 impl AngularVelocity {
-    pub fn new(value: Vec3<Scalar>) -> Self {
-        Self { value }
+    pub fn new(value: impl Into<Vec3<Scalar>>) -> Self {
+        Self {
+            value: value.into(),
+        }
     }
 }
 

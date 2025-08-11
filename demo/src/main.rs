@@ -1,8 +1,6 @@
 pub mod components;
-pub mod control_player;
-pub mod diagnostics;
 pub mod game;
-pub mod renderers;
+pub mod systems;
 pub mod utils;
 
 use crate::game::Game;
@@ -12,9 +10,19 @@ use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(debug_assertions)]
-    {
+    let _guard = {
+        use tracing_chrome::ChromeLayerBuilder;
+        use tracing_subscriber::prelude::*;
+
         std::env::set_current_dir(std::path::Path::new(std::env!("CARGO_MANIFEST_DIR")))?;
-    }
+        let (chrome_layer, _guard) = ChromeLayerBuilder::new()
+            .file("./trace.json")
+            .include_args(true)
+            .include_locations(true)
+            .build();
+        tracing_subscriber::registry().with(chrome_layer).init();
+        _guard
+    };
 
     App::<Vertex>::default().run(Game::default());
     Ok(())

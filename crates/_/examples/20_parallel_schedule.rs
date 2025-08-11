@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }),
     );
     let jobs = Jobs::default();
-    let scheduler = GraphScheduler::<true>::default();
+    let scheduler = GraphScheduler::<true>;
 
     // Spawn first tree that will start chain of new generations.
     universe.simulation.spawn((

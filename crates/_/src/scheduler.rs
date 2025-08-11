@@ -15,9 +15,7 @@ use std::{
     collections::HashSet,
     error::Error,
     ops::{Deref, Range},
-    sync::{Arc, mpsc::Sender},
-    thread::{ThreadId, current},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -144,74 +142,10 @@ impl Iterator for SystemSubstepsIter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GraphSchedulerDiagnosticsEvent {
-    RunBegin {
-        timestamp: SystemTime,
-        thread_id: ThreadId,
-    },
-    RunEnd {
-        timestamp: SystemTime,
-        thread_id: ThreadId,
-    },
-    GroupBegin {
-        timestamp: SystemTime,
-        thread_id: ThreadId,
-        entity: Entity,
-        name: Option<SystemName>,
-    },
-    GroupEnd {
-        timestamp: SystemTime,
-        thread_id: ThreadId,
-        entity: Entity,
-        name: Option<SystemName>,
-    },
-    SystemBegin {
-        timestamp: SystemTime,
-        thread_id: ThreadId,
-        entity: Entity,
-        name: Option<SystemName>,
-    },
-    SystemEnd {
-        timestamp: SystemTime,
-        thread_id: ThreadId,
-        entity: Entity,
-        name: Option<SystemName>,
-    },
-    UserBegin {
-        timestamp: SystemTime,
-        thread_id: ThreadId,
-        name: String,
-        payload: String,
-    },
-    UserEnd {
-        timestamp: SystemTime,
-        thread_id: ThreadId,
-        name: String,
-        payload: String,
-    },
-    UserInstant {
-        timestamp: SystemTime,
-        thread_id: ThreadId,
-        name: String,
-        payload: String,
-    },
-}
-
 #[derive(Default)]
-pub struct GraphScheduler<const LOCKING: bool> {
-    pub diagnostics: Option<Arc<Sender<GraphSchedulerDiagnosticsEvent>>>,
-}
+pub struct GraphScheduler<const LOCKING: bool>;
 
 impl<const LOCKING: bool> GraphScheduler<LOCKING> {
-    pub fn with_diagnostics(
-        mut self,
-        diagnostics: Arc<Sender<GraphSchedulerDiagnosticsEvent>>,
-    ) -> Self {
-        self.diagnostics = Some(diagnostics);
-        self
-    }
-
     pub fn maintenance(jobs: &Jobs, universe: &mut Universe) {
         jobs.run_local();
         universe.clear_changes();
@@ -236,22 +170,16 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
         systems: HashSet<Entity>,
         substeps: SystemSubsteps,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(diagnostics) = &self.diagnostics {
-            let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::RunBegin {
-                timestamp: SystemTime::now(),
-                thread_id: current().id(),
-            });
-        }
+        #[cfg(feature = "tracing")]
+        let _span = tracing::span!(
+            tracing::Level::TRACE,
+            "Run systems",
+            thread_id = format!("{:?}", std::thread::current().id()),
+        )
+        .entered();
         let mut visited = HashSet::with_capacity(universe.systems.len());
         Self::validate_no_cycles(universe, systems.iter().copied(), &mut visited)?;
-        let result = self.run_group(jobs, universe, systems.into_iter(), substeps);
-        if let Some(diagnostics) = &self.diagnostics {
-            let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::RunEnd {
-                timestamp: SystemTime::now(),
-                thread_id: current().id(),
-            });
-        }
-        result?;
+        self.run_group(jobs, universe, systems.into_iter(), substeps)?;
         Ok(())
     }
 
@@ -262,22 +190,16 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
         system: Entity,
         substeps: SystemSubsteps,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(diagnostics) = &self.diagnostics {
-            let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::RunBegin {
-                timestamp: SystemTime::now(),
-                thread_id: current().id(),
-            });
-        }
+        #[cfg(feature = "tracing")]
+        let _span = tracing::span!(
+            tracing::Level::TRACE,
+            "Run system",
+            thread_id = format!("{:?}", std::thread::current().id()),
+        )
+        .entered();
         let mut visited = HashSet::with_capacity(universe.systems.len());
         Self::validate_no_cycles(universe, std::iter::once(system), &mut visited)?;
-        let result = self.run_group(jobs, universe, std::iter::once(system), substeps);
-        if let Some(diagnostics) = &self.diagnostics {
-            let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::RunEnd {
-                timestamp: SystemTime::now(),
-                thread_id: current().id(),
-            });
-        }
-        result?;
+        self.run_group(jobs, universe, std::iter::once(system), substeps)?;
         Ok(())
     }
 
@@ -291,36 +213,22 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
         let job = move || -> Result<(), String> {
             if let Ok(system) = universe.systems.component::<LOCKING, SystemObject>(entity) {
                 if system.should_run(SystemContext::new(universe, entity)) {
-                    if let Some(diagnostics) = &self.diagnostics {
-                        let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::SystemBegin {
-                            timestamp: SystemTime::now(),
-                            thread_id: current().id(),
-                            entity,
-                            name: universe
-                                .systems
-                                .component::<LOCKING, SystemName>(entity)
-                                .ok()
-                                .as_deref()
-                                .cloned(),
-                        });
-                    }
-                    let result = system
+                    #[cfg(feature = "tracing")]
+                    let _span = tracing::span!(
+                        tracing::Level::TRACE,
+                        "Execute system",
+                        thread_id = format!("{:?}", std::thread::current().id()),
+                        entity = entity.to_string(),
+                        name = universe
+                            .systems
+                            .component::<LOCKING, SystemName>(entity)
+                            .ok()
+                            .map(|name| name.to_string()),
+                    )
+                    .entered();
+                    system
                         .run(SystemContext::new(universe, entity))
-                        .map_err(|error| format!("{error}"));
-                    if let Some(diagnostics) = &self.diagnostics {
-                        let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::SystemEnd {
-                            timestamp: SystemTime::now(),
-                            thread_id: current().id(),
-                            entity,
-                            name: universe
-                                .systems
-                                .component::<LOCKING, SystemName>(entity)
-                                .ok()
-                                .as_deref()
-                                .cloned(),
-                        });
-                    }
-                    result?;
+                        .map_err(|error| format!("{error}"))?;
                 }
             }
             let Some(group_children) = universe
@@ -337,36 +245,21 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
                 .component::<LOCKING, SystemSubsteps>(entity)
                 .map(|substeps| *substeps)
                 .unwrap_or_default();
-            if let Some(diagnostics) = &self.diagnostics {
-                let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::GroupBegin {
-                    timestamp: SystemTime::now(),
-                    thread_id: current().id(),
-                    entity,
-                    name: universe
-                        .systems
-                        .component::<LOCKING, SystemName>(entity)
-                        .ok()
-                        .as_deref()
-                        .cloned(),
-                });
-            }
-            let result = self
-                .run_group(jobs, universe, group_children.entities(), substeps)
-                .map_err(|error| format!("{error}"));
-            if let Some(diagnostics) = &self.diagnostics {
-                let _ = diagnostics.send(GraphSchedulerDiagnosticsEvent::GroupEnd {
-                    timestamp: SystemTime::now(),
-                    thread_id: current().id(),
-                    entity,
-                    name: universe
-                        .systems
-                        .component::<LOCKING, SystemName>(entity)
-                        .ok()
-                        .as_deref()
-                        .cloned(),
-                });
-            }
-            result?;
+            #[cfg(feature = "tracing")]
+            let _span = tracing::span!(
+                tracing::Level::TRACE,
+                "Execute group",
+                thread_id = format!("{:?}", std::thread::current().id()),
+                entity = entity.to_string(),
+                name = universe
+                    .systems
+                    .component::<LOCKING, SystemName>(entity)
+                    .ok()
+                    .map(|name| name.to_string()),
+            )
+            .entered();
+            self.run_group(jobs, universe, group_children.entities(), substeps)
+                .map_err(|error| format!("{error}"))?;
             Ok(())
         };
         if let Ok(parallelize) = universe

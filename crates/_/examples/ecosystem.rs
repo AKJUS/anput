@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Systems::run_one_shot::<true>(&universe, init)?;
 
     let jobs = Jobs::default();
-    let scheduler = GraphScheduler::<true>::default();
+    let scheduler = GraphScheduler::<true>;
     loop {
         scheduler.run(&jobs, &mut universe)?;
         sleep(Duration::from_millis(500));

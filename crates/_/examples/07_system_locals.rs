@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .system_setup(report, |system| system.name("report").local(())),
     );
     let jobs = Jobs::default();
-    let scheduler = GraphScheduler::<true>::default();
+    let scheduler = GraphScheduler::<true>;
 
     // Setup heroes.
     universe.simulation.spawn((XP(5), Level(1)))?;

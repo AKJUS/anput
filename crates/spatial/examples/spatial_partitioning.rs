@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Run single simulation frame.
     let jobs = Jobs::default();
-    let scheduler = GraphScheduler::<true>::default();
+    let scheduler = GraphScheduler::<true>;
     scheduler.run(&jobs, &mut universe)?;
 
     Ok(())

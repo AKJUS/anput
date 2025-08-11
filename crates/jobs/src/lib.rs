@@ -14,7 +14,7 @@ use std::{
     },
     task::{Context, Poll, RawWaker, RawWakerVTable, Wake, Waker},
     thread::{JoinHandle, ThreadId, available_parallelism, spawn},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 use typid::ID;
 
@@ -316,11 +316,30 @@ pub struct JobContext {
     pub work_groups_count: usize,
 }
 
+impl std::fmt::Display for JobContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "JobContext {{ work_group_index: {}, work_groups_count: {} }}",
+            self.work_group_index, self.work_groups_count
+        )
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum JobPriority {
     #[default]
     Normal,
     High,
+}
+
+impl std::fmt::Display for JobPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JobPriority::Normal => write!(f, "Normal"),
+            JobPriority::High => write!(f, "High"),
+        }
+    }
 }
 
 struct JobObject {
@@ -419,7 +438,6 @@ impl Worker {
         worker_meta: Arc<RwLock<HashMap<String, DynamicManagedLazy>>>,
         hash_tokens: Arc<Mutex<HashSet<u64>>>,
         notify: Arc<(Mutex<bool>, Condvar)>,
-        diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
     ) -> Worker {
         let terminate = Arc::new(AtomicBool::default());
         let terminate2 = terminate.clone();
@@ -448,7 +466,6 @@ impl Worker {
                     } else {
                         let (waker, receiver) = JobsWaker::new_waker(
                             queue.clone(),
-                            id,
                             location.clone(),
                             context,
                             priority,
@@ -458,34 +475,20 @@ impl Worker {
                             hash_tokens.clone(),
                             cancel.clone(),
                             suspend.clone(),
-                            diagnostics.clone(),
                         );
                         let mut cx = Context::from_waker(&waker);
-                        let poll_timer = Instant::now();
-                        if let Some(diagnostics) = diagnostics.as_ref() {
-                            let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollBegin {
-                                timestamp: SystemTime::now(),
-                                id,
-                                location: location.clone(),
-                                context,
-                                priority,
-                                thread_id: std::thread::current().id(),
-                            });
-                        }
+                        #[cfg(feature = "tracing")]
+                        let _span = tracing::span!(
+                            tracing::Level::TRACE,
+                            "Job poll",
+                            id = id.to_string(),
+                            location = location.to_string(),
+                            context = context.to_string(),
+                            priority = priority.to_string(),
+                            thread_id = format!("{:?}", std::thread::current().id()),
+                        )
+                        .entered();
                         let poll_result = job.poll(&mut cx);
-                        let duration = poll_timer.elapsed();
-                        if let Some(diagnostics) = diagnostics.as_ref() {
-                            let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollEnd {
-                                timestamp: SystemTime::now(),
-                                id,
-                                location: location.clone(),
-                                context,
-                                priority,
-                                thread_id: std::thread::current().id(),
-                                duration,
-                                pending: poll_result.is_some(),
-                            });
-                        }
                         (poll_result, receiver)
                     };
                     if let Some(job) = poll_result {
@@ -598,6 +601,20 @@ impl JobLocation {
     }
 }
 
+impl std::fmt::Display for JobLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JobLocation::Unknown => write!(f, "Unknown"),
+            JobLocation::Local => write!(f, "Local"),
+            JobLocation::NonLocal => write!(f, "Non-local"),
+            JobLocation::UnnamedWorker => write!(f, "Unnamed worker"),
+            JobLocation::NamedWorker(name) => write!(f, "Named worker: {name}"),
+            JobLocation::ExactThread(id) => write!(f, "Exact thread: {id:?}"),
+            JobLocation::OtherThanThread(id) => write!(f, "Other than thread: {id:?}"),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct JobToken {
     hash_tokens: Arc<Mutex<HashSet<u64>>>,
@@ -614,7 +631,6 @@ impl Drop for JobToken {
 pub(crate) struct JobsWaker {
     sender: Sender<JobsWakerCommand>,
     queue: Arc<JobQueue>,
-    id: ID<Jobs>,
     location: JobLocation,
     context: JobContext,
     priority: JobPriority,
@@ -624,7 +640,6 @@ pub(crate) struct JobsWaker {
     hash_tokens: Arc<Mutex<HashSet<u64>>>,
     cancel: Arc<AtomicBool>,
     suspend: Arc<AtomicBool>,
-    diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
 }
 
 impl JobsWaker {
@@ -645,7 +660,6 @@ impl JobsWaker {
     #[allow(clippy::too_many_arguments)]
     pub fn new_waker(
         queue: Arc<JobQueue>,
-        id: ID<Jobs>,
         location: JobLocation,
         context: JobContext,
         priority: JobPriority,
@@ -655,13 +669,11 @@ impl JobsWaker {
         hash_tokens: Arc<Mutex<HashSet<u64>>>,
         cancel: Arc<AtomicBool>,
         suspend: Arc<AtomicBool>,
-        diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
     ) -> (Waker, Receiver<JobsWakerCommand>) {
         let (sender, receiver) = std::sync::mpsc::channel();
         let arc = Arc::new(Self {
             sender,
             queue,
-            id,
             location,
             context,
             priority,
@@ -671,7 +683,6 @@ impl JobsWaker {
             hash_tokens,
             cancel,
             suspend,
-            diagnostics,
         });
         let raw = RawWaker::new(Arc::into_raw(arc) as *const (), &Self::VTABLE);
         (unsafe { Waker::from_raw(raw) }, receiver)
@@ -780,57 +791,10 @@ impl JobsWaker {
         }
         None
     }
-
-    pub fn diagnostics_user_event(&self, payload: String, duration: Option<Duration>) {
-        if let Some(diagnostics) = self.diagnostics.as_ref() {
-            let _ = diagnostics.send(JobsDiagnosticsEvent::UserEvent {
-                timestamp: SystemTime::now(),
-                id: self.id,
-                location: self.location.clone(),
-                context: self.context,
-                priority: self.priority,
-                thread_id: std::thread::current().id(),
-                duration,
-                payload,
-            });
-        }
-    }
 }
 
 impl Wake for JobsWaker {
     fn wake(self: Arc<Self>) {}
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JobsDiagnosticsEvent {
-    JobPollBegin {
-        timestamp: SystemTime,
-        id: ID<Jobs>,
-        location: JobLocation,
-        context: JobContext,
-        priority: JobPriority,
-        thread_id: ThreadId,
-    },
-    JobPollEnd {
-        timestamp: SystemTime,
-        id: ID<Jobs>,
-        location: JobLocation,
-        context: JobContext,
-        priority: JobPriority,
-        thread_id: ThreadId,
-        duration: Duration,
-        pending: bool,
-    },
-    UserEvent {
-        timestamp: SystemTime,
-        id: ID<Jobs>,
-        location: JobLocation,
-        context: JobContext,
-        priority: JobPriority,
-        thread_id: ThreadId,
-        duration: Option<Duration>,
-        payload: String,
-    },
 }
 
 pub struct Jobs {
@@ -840,7 +804,6 @@ pub struct Jobs {
     hash_tokens: Arc<Mutex<HashSet<u64>>>,
     /// (ready, cond var)
     notify: Arc<(Mutex<bool>, Condvar)>,
-    pub diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>,
 }
 
 impl Drop for Jobs {
@@ -874,17 +837,6 @@ impl Default for Jobs {
 
 impl Jobs {
     pub fn new(count: usize) -> Jobs {
-        Self::new_inner(count, None)
-    }
-
-    pub fn new_with_diagnostics(
-        count: usize,
-        diagnostics: Arc<Sender<JobsDiagnosticsEvent>>,
-    ) -> Jobs {
-        Self::new_inner(count, Some(diagnostics))
-    }
-
-    fn new_inner(count: usize, diagnostics: Option<Arc<Sender<JobsDiagnosticsEvent>>>) -> Jobs {
         let queue = Arc::new(JobQueue::default());
         let notify = Arc::new((Mutex::default(), Condvar::new()));
         let global_meta = Arc::new(RwLock::new(HashMap::default()));
@@ -900,7 +852,6 @@ impl Jobs {
                         worker_meta.clone(),
                         hash_tokens.clone(),
                         notify.clone(),
-                        None,
                     )
                 })
                 .collect(),
@@ -908,7 +859,6 @@ impl Jobs {
             meta: global_meta,
             hash_tokens,
             notify,
-            diagnostics,
         }
     }
 
@@ -937,7 +887,6 @@ impl Jobs {
             Arc::new(RwLock::new(meta.into_iter().collect::<HashMap<_, _>>())),
             self.hash_tokens.clone(),
             self.notify.clone(),
-            self.diagnostics.clone(),
         ));
     }
 
@@ -957,7 +906,6 @@ impl Jobs {
             Arc::new(RwLock::new(meta.into_iter().collect::<HashMap<_, _>>())),
             self.hash_tokens.clone(),
             self.notify.clone(),
-            self.diagnostics.clone(),
         ));
     }
 
@@ -1073,7 +1021,6 @@ impl Jobs {
             } else {
                 let (waker, receiver) = JobsWaker::new_waker(
                     self.queue.clone(),
-                    id,
                     location.clone(),
                     context,
                     priority,
@@ -1083,34 +1030,20 @@ impl Jobs {
                     self.hash_tokens.clone(),
                     cancel.clone(),
                     suspend.clone(),
-                    self.diagnostics.clone(),
                 );
                 let mut cx = Context::from_waker(&waker);
-                if let Some(diagnostics) = self.diagnostics.as_ref() {
-                    let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollBegin {
-                        timestamp: SystemTime::now(),
-                        id,
-                        location: location.clone(),
-                        context,
-                        priority,
-                        thread_id: std::thread::current().id(),
-                    });
-                }
-                let poll_timer = Instant::now();
+                #[cfg(feature = "tracing")]
+                let _span = tracing::span!(
+                    tracing::Level::TRACE,
+                    "Job poll",
+                    id = id.to_string(),
+                    location = location.to_string(),
+                    context = context.to_string(),
+                    priority = priority.to_string(),
+                    thread_id = format!("{:?}", std::thread::current().id()),
+                )
+                .entered();
                 let poll_result = job.poll(&mut cx);
-                let duration = poll_timer.elapsed();
-                if let Some(diagnostics) = self.diagnostics.as_ref() {
-                    let _ = diagnostics.send(JobsDiagnosticsEvent::JobPollEnd {
-                        timestamp: SystemTime::now(),
-                        id,
-                        location: location.clone(),
-                        context,
-                        priority,
-                        thread_id: std::thread::current().id(),
-                        duration,
-                        pending: poll_result.is_some(),
-                    });
-                }
                 (poll_result, receiver)
             };
             if let Some(job) = poll_result {

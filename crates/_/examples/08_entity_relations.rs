@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .system_setup(report_alive, |system| system.name("report_alive")),
     );
     let jobs = Jobs::default();
-    let scheduler = GraphScheduler::<true>::default();
+    let scheduler = GraphScheduler::<true>;
 
     // Setup hero and monsters.
     let hero = universe.simulation.spawn((Hero,))?;

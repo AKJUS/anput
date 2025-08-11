@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .system_setup(stats_react, |system| system.name("stats_react")),
     );
     let jobs = Jobs::default();
-    let scheduler = GraphScheduler::<true>::default();
+    let scheduler = GraphScheduler::<true>;
 
     for index in 0..10 {
         println!("* Iteration: {index}");
