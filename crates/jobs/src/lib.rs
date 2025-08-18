@@ -1,7 +1,11 @@
 pub mod coroutine;
 
 use crate::coroutine::context;
+#[cfg(target_arch = "wasm32")]
+use instant::{Duration, Instant};
 use intuicio_data::managed::{DynamicManagedLazy, ManagedLazy};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     error::Error,
@@ -14,7 +18,6 @@ use std::{
     },
     task::{Context, Poll, RawWaker, RawWakerVTable, Wake, Waker},
     thread::{JoinHandle, ThreadId, available_parallelism, spawn},
-    time::{Duration, Instant},
 };
 use typid::ID;
 

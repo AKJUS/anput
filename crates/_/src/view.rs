@@ -291,9 +291,8 @@ impl Iterator for WorldViewEntityRangeIter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use anput_jobs::Jobs;
-
     use super::*;
+    use anput_jobs::Jobs;
     use std::{
         thread::{sleep, spawn},
         time::Duration,

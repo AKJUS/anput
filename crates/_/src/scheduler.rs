@@ -9,13 +9,16 @@ use crate::{
     world::{Relation, World},
 };
 use anput_jobs::{JobLocation, JobPriority, Jobs, ScopedJobs};
+#[cfg(target_arch = "wasm32")]
+use instant::{Duration, Instant};
 use intuicio_data::managed::DynamicManaged;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
 use std::{
     borrow::Cow,
     collections::HashSet,
     error::Error,
     ops::{Deref, Range},
-    time::{Duration, Instant},
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -2,7 +2,11 @@ use crate::{
     Job, JobContext, JobHandle, JobLocation, JobObject, JobPriority, JobQueue, JobToken, JobsWaker,
     JobsWakerCommand,
 };
+#[cfg(target_arch = "wasm32")]
+use instant::{Duration, Instant};
 use intuicio_data::managed::{DynamicManagedLazy, ManagedLazy};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
 use std::{
     future::poll_fn,
     hash::Hash,
@@ -10,7 +14,6 @@ use std::{
     sync::{Arc, Mutex, RwLock, atomic::Ordering, mpsc::Receiver},
     task::{Context, Poll, Wake},
     thread::Thread,
-    time::{Duration, Instant},
 };
 use typid::ID;
 
