@@ -8,3 +8,12 @@ publish = false
 anput = { version = "*", path = "../crates/_" }
 rand = "0.9"
 ittapi = "0.4"
+
+[dev-dependencies]
+criterion = "0.5"
+hecs = "0.10"
+shipyard = "0.9"
+
+[[bench]]
+name = "ecs"
+harness = false

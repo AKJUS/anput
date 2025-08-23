@@ -45,6 +45,9 @@ run-fresh-benchmarks:
   just clear-benchmarks
   just run-benchmarks
 
+run-benches:
+  cargo bench --manifest-path ./bench/Cargo.toml
+
 clean:
   find . -name target -type d -exec rm -r {} +
   just remove-lockfiles
