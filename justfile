@@ -40,7 +40,6 @@ run-benchmarks:
   vtune -collect hotspots -finalization-mode=full -result-dir=./vtune-reports/spawn-r@@@{at} -- ./target/profiling/spawn.exe
   vtune -collect hotspots -finalization-mode=full -result-dir=./vtune-reports/query-r@@@{at} -- ./target/profiling/query.exe
   vtune -collect hotspots -finalization-mode=full -result-dir=./vtune-reports/lookup-r@@@{at} -- ./target/profiling/lookup.exe
-  vtune -collect hotspots -finalization-mode=full -result-dir=./vtune-reports/lookup-access-r@@@{at} -- ./target/profiling/lookup_access.exe
 
 run-fresh-benchmarks:
   just clear-benchmarks
