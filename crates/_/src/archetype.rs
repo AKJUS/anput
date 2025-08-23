@@ -1213,7 +1213,7 @@ impl Archetype {
             columns,
             capacity,
             size: 0,
-            entity_dense_map: EntityDenseMap::with_capacity(capacity),
+            entity_dense_map: Default::default(),
         })
     }
 

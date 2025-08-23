@@ -29,7 +29,22 @@ checks:
   just miri
 
 demo:
-  cargo run --manifest-path ./demo/Cargo.toml
+  cargo run --release --manifest-path ./demo/Cargo.toml
+
+clear-benchmarks:
+  rm -rf ./vtune-reports
+  mkdir ./vtune-reports
+
+run-benchmarks:
+  cargo build --profile profiling --bins --manifest-path ./bench/Cargo.toml
+  vtune -collect hotspots -finalization-mode=full -result-dir=./vtune-reports/spawn-r@@@{at} -- ./target/profiling/spawn.exe
+  vtune -collect hotspots -finalization-mode=full -result-dir=./vtune-reports/query-r@@@{at} -- ./target/profiling/query.exe
+  vtune -collect hotspots -finalization-mode=full -result-dir=./vtune-reports/lookup-r@@@{at} -- ./target/profiling/lookup.exe
+  vtune -collect hotspots -finalization-mode=full -result-dir=./vtune-reports/lookup-access-r@@@{at} -- ./target/profiling/lookup_access.exe
+
+run-fresh-benchmarks:
+  just clear-benchmarks
+  just run-benchmarks
 
 clean:
   find . -name target -type d -exec rm -r {} +

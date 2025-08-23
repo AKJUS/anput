@@ -1,6 +1,6 @@
 [package]
 name = "anput"
-version = "0.19.2"
+version = "0.20.0"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Scriptable Entity-Component-System (powered by Intuicio)"
@@ -16,7 +16,7 @@ tracing = ["dep:tracing"]
 deadlock-trace = ["anput-jobs/deadlock-trace"]
 
 [dependencies]
-anput-jobs = { version = "0.19", path = "../jobs" }
+anput-jobs = { version = "0.20", path = "../jobs" }
 intuicio-data = "0.47"
 intuicio-core = "0.47"
 intuicio-derive = "0.47"

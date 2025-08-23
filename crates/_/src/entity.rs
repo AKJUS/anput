@@ -1,8 +1,7 @@
-use std::cmp::Ordering;
-
 use intuicio_core::{IntuicioStruct, registry::Registry};
 use intuicio_derive::*;
 use serde::{Deserialize, Serialize};
+use std::{cmp::Ordering, collections::BTreeMap};
 
 /// Represents an entity with a unique `id` and a `generation` to track lifecycle and version.
 #[derive(IntuicioStruct, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -124,31 +123,27 @@ impl Entity {
 /// A structure to store entities in a dense array.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EntityDenseMap {
-    inner: Vec<Entity>,
+    entity_to_index: BTreeMap<Entity, usize>,
+    index_to_entity: BTreeMap<usize, Entity>,
+    indices_to_reuse: Vec<usize>,
 }
 
 impl EntityDenseMap {
-    /// Creates a new `EntityDenseMap` with the specified initial capacity, ensuring it is a power of two.
-    pub fn with_capacity(mut capacity: usize) -> Self {
-        capacity = capacity.next_power_of_two().max(1);
-        Self {
-            inner: Vec::with_capacity(capacity),
-        }
-    }
-
     /// Tells if there are no eentities stored.
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.entity_to_index.is_empty()
     }
 
     /// Returns number of entities stored.
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.entity_to_index.len()
     }
 
     /// Clears the map, removing all entities from it.
     pub fn clear(&mut self) {
-        self.inner.clear();
+        self.entity_to_index.clear();
+        self.index_to_entity.clear();
+        self.indices_to_reuse.clear();
     }
 
     /// Inserts a new entity into the map.
@@ -157,47 +152,42 @@ impl EntityDenseMap {
         if let Some(index) = self.index_of(entity) {
             Err(index)
         } else {
-            if self.inner.len() == self.inner.capacity() {
-                self.inner.reserve_exact(self.inner.capacity());
-            }
-            let index = self.inner.len();
-            self.inner.push(entity);
+            let index = if let Some(reused_index) = self.indices_to_reuse.pop() {
+                reused_index
+            } else {
+                self.entity_to_index.len()
+            };
+            self.entity_to_index.insert(entity, index);
+            self.index_to_entity.insert(index, entity);
             Ok(index)
         }
     }
 
     /// Removes an entity from the map and returns its index if it was found.
     pub fn remove(&mut self, entity: Entity) -> Option<usize> {
-        let index = self.index_of(entity)?;
-        self.inner.swap_remove(index);
-        if self.inner.len() == self.inner.capacity() / 2 {
-            self.inner.shrink_to_fit();
-        }
+        let index = self.entity_to_index.remove(&entity)?;
+        self.index_to_entity.remove(&index);
+        self.indices_to_reuse.push(index);
         Some(index)
     }
 
     /// Checks whether the specified entity is present in the map.
     pub fn contains(&self, entity: Entity) -> bool {
-        self.inner.contains(&entity)
+        self.entity_to_index.contains_key(&entity)
     }
 
     /// Finds the index of the specified entity in the map.
     pub fn index_of(&self, entity: Entity) -> Option<usize> {
-        self.inner.iter().position(|e| *e == entity)
+        self.entity_to_index.get(&entity).copied()
     }
 
     /// Retrieves the entity at the given index if available.
     pub fn get(&self, index: usize) -> Option<Entity> {
-        self.inner.get(index).copied()
+        self.index_to_entity.get(&index).copied()
     }
 
     /// Returns an iterator over the entities in the map.
     pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.inner.iter().copied()
-    }
-
-    /// Returns slice to all entities.
-    pub fn entities(&self) -> &[Entity] {
-        &self.inner
+        self.entity_to_index.keys().copied()
     }
 }

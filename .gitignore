@@ -8,3 +8,4 @@ Cargo.lock
 *.bimp
 crates/examples/snapshot.save
 crates/jobs/resources/
+vtune-reports/

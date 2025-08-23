@@ -1,0 +1,10 @@
+[package]
+name = "bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anput = { version = "*", path = "../crates/_" }
+rand = "0.9"
+ittapi = "0.4"
