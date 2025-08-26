@@ -104,11 +104,6 @@ impl ShapeOverlapCell {
             .filter(|v| *v > Scalar::EPSILON)
             .product::<Scalar>()
     }
-
-    pub fn normal_response(&self, responding_body_index: usize) -> Vec3<Scalar> {
-        let surface_body_index = (responding_body_index + 1) % 2;
-        self.normal[responding_body_index].reflected(self.normal[surface_body_index])
-    }
 }
 
 pub fn intersecting_aabb_for_subdivisions(

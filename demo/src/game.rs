@@ -1,10 +1,12 @@
 use crate::{
     components::{PlayerControlled, Visible},
+    resources::{Clock, Globals, Inputs, ShouldRunSimulation},
     systems::{
         contacts_renderer::render_contacts,
         control_bodies::{SpawnBodies, control_bodies},
         control_player::control_player,
-        density_field_renderer::render_density_fields,
+        density_field_renderer::{ShouldRenderDensityFields, render_density_fields},
+        object_renderer::{ShouldRenderObjects, render_objects},
     },
 };
 use anput::{
@@ -19,7 +21,7 @@ use anput_physics::{
         BodyDensityFieldRelation, BodyParentRelation, BodyParticleRelation, ExternalForces,
         LinearVelocity, Mass, ParticleMaterial, PhysicsBody, PhysicsParticle, Position,
     },
-    density_fields::{DensityFieldBox, aabb::AabbDensityField, sphere::SphereDensityField},
+    density_fields::{DensityFieldBox, aabb::AabbDensityField, cube::CubeDensityField},
     queries::shape::ShapeOverlapQuery,
     third_party::vek::{Aabb, Rgba, Vec3},
 };
@@ -42,7 +44,7 @@ use spitfire_glow::{
 };
 use spitfire_gui::context::GuiContext;
 use spitfire_input::{
-    ArrayInputCombinator, DualInputCombinator, InputActionRef, InputAxisRef, InputConsume,
+    ArrayInputCombinator, CardinalInputCombinator, InputActionRef, InputAxisRef, InputConsume,
     InputContext, InputMapping, VirtualAction, VirtualAxis,
 };
 use std::time::{Duration, Instant};
@@ -57,6 +59,7 @@ pub struct Game {
     fixed_step_timer: Instant,
     variable_step_timer: Instant,
     exit_game: InputActionRef,
+    restart_simulation: InputActionRef,
 }
 
 impl Default for Game {
@@ -68,7 +71,72 @@ impl Default for Game {
             fixed_step_timer: Instant::now(),
             variable_step_timer: Instant::now(),
             exit_game: Default::default(),
+            restart_simulation: Default::default(),
         }
+    }
+}
+
+impl Game {
+    fn prepare_simulation(&mut self) {
+        let ground = self
+            .universe
+            .simulation
+            .spawn((
+                PhysicsBody,
+                DensityFieldBox::new(AabbDensityField {
+                    aabb: Aabb {
+                        min: Vec3::new(-1000.0, 300.0, 0.0),
+                        max: Vec3::new(1000.0, 500.0, 0.0),
+                    },
+                    density: 1.0,
+                }),
+                CollisionProfile::default().with_block(CollisionMask::flag(0)),
+                ContactDetection::default(),
+                Rgba::<f32>::new(0.0, 0.5, 0.0, 1.0),
+                Visible,
+            ))
+            .unwrap();
+        self.universe
+            .simulation
+            .relate::<true, _>(BodyParentRelation, ground, ground)
+            .unwrap();
+        self.universe
+            .simulation
+            .relate::<true, _>(BodyDensityFieldRelation, ground, ground)
+            .unwrap();
+
+        let player = self
+            .universe
+            .simulation
+            .spawn((
+                PhysicsBody,
+                PhysicsParticle,
+                // DensityFieldBox::new(SphereDensityField::<true>::new_hard(1.0, 50.0)),
+                DensityFieldBox::new(CubeDensityField::<true>::new_hard(1.0, 50.0.into())),
+                CollisionProfile::default().with_block(CollisionMask::flag(0)),
+                ContactDetection::default(),
+                Mass::new(1.0),
+                Position::new(Vec3::new(0.0, 0.0, 0.0)),
+                LinearVelocity::default(),
+                ExternalForces::default(),
+                ParticleMaterial::default(),
+                Rgba::<f32>::yellow(),
+                Visible,
+                PlayerControlled,
+            ))
+            .unwrap();
+        self.universe
+            .simulation
+            .relate::<true, _>(BodyParentRelation, player, player)
+            .unwrap();
+        self.universe
+            .simulation
+            .relate::<true, _>(BodyDensityFieldRelation, player, player)
+            .unwrap();
+        self.universe
+            .simulation
+            .relate::<true, _>(BodyParticleRelation, player, player)
+            .unwrap();
     }
 }
 
@@ -110,20 +178,28 @@ impl AppState<Vertex> for Game {
         let pointer_trigger = InputActionRef::default();
         let movement_left = InputActionRef::default();
         let movement_right = InputActionRef::default();
+        let movement_up = InputActionRef::default();
+        let movement_down = InputActionRef::default();
         let jump = InputActionRef::default();
-        let reset = InputActionRef::default();
+        let reset_movement = InputActionRef::default();
+        let switch_render_mode = InputActionRef::default();
+        let switch_spawn_mode = InputActionRef::default();
+        self.restart_simulation = InputActionRef::default();
+        let toggle_simulation = InputActionRef::default();
 
         inputs.mouse_xy = ArrayInputCombinator::new([pointer_x.clone(), pointer_y.clone()]);
         inputs.mouse_trigger = pointer_trigger.clone();
-        inputs.movement = DualInputCombinator::new(movement_left.clone(), movement_right.clone());
+        inputs.movement = CardinalInputCombinator::new(
+            movement_left.clone(),
+            movement_right.clone(),
+            movement_up.clone(),
+            movement_down.clone(),
+        );
         inputs.jump = jump.clone();
-        inputs.reset = reset.clone();
-
-        // gui.interactions.inputs = GuiInteractionsInputs {
-        //     pointer_position: ArrayInputCombinator::new([pointer_x.clone(), pointer_y.clone()]),
-        //     pointer_trigger: pointer_trigger.clone(),
-        //     ..Default::default()
-        // };
+        inputs.reset_movement = reset_movement.clone();
+        inputs.switch_render_mode = switch_render_mode.clone();
+        inputs.switch_spawn_mode = switch_spawn_mode.clone();
+        inputs.toggle_simulation = toggle_simulation.clone();
 
         input_context.push_mapping(
             InputMapping::default()
@@ -146,6 +222,14 @@ impl AppState<Vertex> for Game {
                     VirtualAction::KeyButton(VirtualKeyCode::D),
                     movement_right.clone(),
                 )
+                .action(
+                    VirtualAction::KeyButton(VirtualKeyCode::W),
+                    movement_up.clone(),
+                )
+                .action(
+                    VirtualAction::KeyButton(VirtualKeyCode::S),
+                    movement_down.clone(),
+                )
                 .action(VirtualAction::KeyButton(VirtualKeyCode::Space), jump)
                 .action(
                     VirtualAction::KeyButton(VirtualKeyCode::Left),
@@ -155,13 +239,36 @@ impl AppState<Vertex> for Game {
                     VirtualAction::KeyButton(VirtualKeyCode::Right),
                     movement_right,
                 )
-                .action(VirtualAction::KeyButton(VirtualKeyCode::R), reset),
+                .action(VirtualAction::KeyButton(VirtualKeyCode::Up), movement_up)
+                .action(
+                    VirtualAction::KeyButton(VirtualKeyCode::Down),
+                    movement_down,
+                )
+                .action(VirtualAction::KeyButton(VirtualKeyCode::R), reset_movement)
+                .action(
+                    VirtualAction::KeyButton(VirtualKeyCode::F4),
+                    switch_render_mode,
+                )
+                .action(
+                    VirtualAction::KeyButton(VirtualKeyCode::Tab),
+                    switch_spawn_mode,
+                )
+                .action(
+                    VirtualAction::KeyButton(VirtualKeyCode::F8),
+                    self.restart_simulation.clone(),
+                )
+                .action(
+                    VirtualAction::KeyButton(VirtualKeyCode::F5),
+                    toggle_simulation,
+                ),
         );
 
         self.universe = Universe::default()
             .with_basics(10240, 10240)
             .unwrap()
             .with_resource(Clock::default())
+            .unwrap()
+            .with_resource(Globals::default())
             .unwrap()
             .with_resource(SendWrapper::new(draw))
             .unwrap()
@@ -178,7 +285,7 @@ impl AppState<Vertex> for Game {
                 .unwrap(),
             ))
             .unwrap()
-            .with_resource(SendWrapper::new(inputs))
+            .with_resource(inputs)
             .unwrap()
             .with_plugin(
                 GraphSchedulerPlugin::<true>::default()
@@ -206,85 +313,36 @@ impl AppState<Vertex> for Game {
                                             min: Vec3::new(f32::MIN, f32::MIN, 0.0),
                                             max: Vec3::new(f32::MAX, f32::MAX, 0.0),
                                         }),
-                                        depth_limit: 0,
+                                        // depth_limit: 0,
                                         ..Default::default()
                                     })
-                                    .make(),
+                                    .make()
+                                    .condition::<ShouldRunSimulation>(),
                             ),
                     )
                     .plugin(
                         GraphSchedulerPlugin::<true>::default()
                             .name("draw-pixels")
                             .system_setup(render_density_fields, |system| {
-                                system.name("render_density_fields")
+                                system
+                                    .name("render_density_fields")
+                                    .condition::<ShouldRenderDensityFields>()
                             }),
                     )
                     .plugin(
                         GraphSchedulerPlugin::<true>::default()
                             .name("draw-world")
+                            .system_setup(render_objects, |system| {
+                                system
+                                    .name("render_objects")
+                                    .condition::<ShouldRenderObjects>()
+                            })
                             .system_setup(render_contacts, |system| system.name("render_contacts")),
                     )
                     .plugin(GraphSchedulerPlugin::<true>::default().name("draw-gui")),
             );
 
-        let ground = self
-            .universe
-            .simulation
-            .spawn((
-                PhysicsBody,
-                DensityFieldBox::new(AabbDensityField {
-                    aabb: Aabb {
-                        min: Vec3::new(-1000.0, 200.0, 0.0),
-                        max: Vec3::new(1000.0, 400.0, 0.0),
-                    },
-                    density: 1.0,
-                }),
-                CollisionProfile::default().with_block(CollisionMask::flag(0)),
-                ContactDetection::default(),
-                Rgba::<f32>::new(0.0, 0.5, 0.0, 1.0),
-                Visible,
-            ))
-            .unwrap();
-        self.universe
-            .simulation
-            .relate::<true, _>(BodyParentRelation, ground, ground)
-            .unwrap();
-        self.universe
-            .simulation
-            .relate::<true, _>(BodyDensityFieldRelation, ground, ground)
-            .unwrap();
-
-        let ball = self
-            .universe
-            .simulation
-            .spawn((
-                PhysicsBody,
-                PhysicsParticle,
-                DensityFieldBox::new(SphereDensityField::<true>::new_hard(1.0, 50.0)),
-                CollisionProfile::default().with_block(CollisionMask::flag(0)),
-                ContactDetection::default(),
-                Mass::new(1.0),
-                Position::new(Vec3::new(0.0, 0.0, 0.0)),
-                LinearVelocity::default(),
-                ExternalForces::default(),
-                ParticleMaterial::default(),
-                Rgba::<f32>::yellow(),
-                Visible,
-                PlayerControlled,
-            ))
-            .unwrap();
-        self.universe
-            .simulation
-            .relate::<true, _>(BodyParentRelation, ball, ball)
-            .unwrap();
-        self.universe
-            .simulation
-            .relate::<true, _>(BodyDensityFieldRelation, ball, ball)
-            .unwrap();
-        self.universe
-            .simulation
-            .relate::<true, _>(BodyParticleRelation, ball, ball)
-            .unwrap();
+        self.prepare_simulation();
 
         self.fixed_step_timer = Instant::now();
         self.variable_step_timer = Instant::now();
@@ -293,6 +351,11 @@ impl AppState<Vertex> for Game {
     fn on_redraw(&mut self, graphics: &mut Graphics<Vertex>, control: &mut AppControl) {
         if self.exit_game.get().is_pressed() {
             control.close_requested = true;
+        }
+
+        if self.restart_simulation.get().is_pressed() {
+            self.universe.simulation.clear();
+            self.prepare_simulation();
         }
 
         let draw_buffer = DrawBuffer::new(graphics);
@@ -506,37 +569,4 @@ impl AppState<Vertex> for Game {
         }
         true
     }
-}
-
-pub struct Clock {
-    fixed_step_timer: Instant,
-    variable_step_timer: Instant,
-}
-
-impl Default for Clock {
-    fn default() -> Self {
-        Self {
-            fixed_step_timer: Instant::now(),
-            variable_step_timer: Instant::now(),
-        }
-    }
-}
-
-impl Clock {
-    pub fn fixed_step_elapsed(&self) -> Duration {
-        self.fixed_step_timer.elapsed()
-    }
-
-    pub fn variable_step_elapsed(&self) -> Duration {
-        self.variable_step_timer.elapsed()
-    }
-}
-
-#[derive(Default)]
-pub struct Inputs {
-    pub mouse_xy: ArrayInputCombinator<2>,
-    pub mouse_trigger: InputActionRef,
-    pub movement: DualInputCombinator,
-    pub jump: InputActionRef,
-    pub reset: InputActionRef,
 }

@@ -8,7 +8,7 @@ fn main() {
 
     let query_event = ittapi::Event::new("Query entities");
     let fetch_event = ittapi::Event::new("Query fetch components");
-    
+
     let dynamic_query_event = ittapi::Event::new("Dynamic query entities");
     let dynamic_fetch_event = ittapi::Event::new("Dynamic query fetch components");
 

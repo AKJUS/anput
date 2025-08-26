@@ -1,7 +1,7 @@
 use crate::{
     Scalar,
     components::Position,
-    density_fields::{BodyAccessInfo, DensityField, DensityRange},
+    density_fields::{BodyAccessInfo, DensityField},
 };
 use vek::{Aabb, Vec3};
 
@@ -57,32 +57,17 @@ impl<const LOCKING: bool> DensityField for SphereDensityField<LOCKING> {
         info.particles::<LOCKING, &Position>()
             .map(|position| {
                 let distance = position.current.distance(point);
-                if distance < self.radius {
-                    self.density
-                } else {
+                let factor = if distance < self.radius {
+                    1.0
+                } else if self.edge_thickness > Scalar::EPSILON {
                     1.0 - ((distance - self.radius) / self.edge_thickness).clamp(0.0, 1.0)
-                }
+                } else {
+                    0.0
+                };
+                factor * self.density
             })
             .reduce(|accum, density| accum.max(density))
             .unwrap_or_default()
-    }
-
-    fn density_at_region(&self, region: Aabb<Scalar>, info: &BodyAccessInfo) -> DensityRange {
-        [
-            region.center(),
-            Vec3::new(region.min.x, region.min.y, region.min.z),
-            Vec3::new(region.max.x, region.min.y, region.min.z),
-            Vec3::new(region.min.x, region.max.y, region.min.z),
-            Vec3::new(region.max.x, region.max.y, region.min.z),
-            Vec3::new(region.min.x, region.min.y, region.max.z),
-            Vec3::new(region.max.x, region.min.y, region.max.z),
-            Vec3::new(region.min.x, region.max.y, region.max.z),
-            Vec3::new(region.max.x, region.max.y, region.max.z),
-        ]
-        .into_iter()
-        .map(|point| DensityRange::converged(self.density_at_point(point, info)))
-        .reduce(|accum, density| accum.min_max(&density))
-        .unwrap_or_default()
     }
 
     fn normal_at_point(
@@ -101,6 +86,7 @@ impl<const LOCKING: bool> DensityField for SphereDensityField<LOCKING> {
                 }
             })
             .reduce(|accum, direction| accum + direction)
+            // TODO: maybe weight directions so ones closer to the surface have more influence?
             .and_then(|normal| normal.try_normalized())
             .unwrap_or_default()
     }

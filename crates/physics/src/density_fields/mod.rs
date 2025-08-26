@@ -1,5 +1,6 @@
 pub mod aabb;
 pub mod addition;
+pub mod cube;
 pub mod multiplication;
 pub mod sphere;
 pub mod subtraction;
@@ -67,28 +68,27 @@ pub trait DensityField: Send + Sync + Any {
     /// for example if some collision queries do quad/oct tree subdivision
     /// use min-max to tell if region should be subdivided further or not.
     ///
-    /// The default implementation divides the region into chunks and samples
-    /// densities at the center of each chunk using `density_at_point` and then
-    /// reduces the results to find the minimum and maximum density.
-    /// You should implement this method if you want to provide a more
-    /// efficient way to compute the density range at a specific region.
+    /// The default implementation samples densities at the center and corners
+    /// using `density_at_point` and then reduces the results to find the
+    /// minimum and maximum density. You should implement this method if you
+    /// want to provide a more efficient or more precise way to compute the
+    /// density range at a specific region.
     fn density_at_region(&self, region: Aabb<Scalar>, info: &BodyAccessInfo) -> DensityRange {
-        let center = region.center();
-        let size = region.size().into_array().map(|size| size * 0.5);
-        std::iter::once(center)
-            .chain(
-                size.into_iter()
-                    .enumerate()
-                    .filter(|(_, size)| *size > Scalar::EPSILON)
-                    .flat_map(|(index, size)| {
-                        let mut offset = Vec3::zero();
-                        offset[index] = size;
-                        [center - offset, center + offset]
-                    }),
-            )
-            .map(|point| DensityRange::converged(self.density_at_point(point, info)))
-            .reduce(|accum, range| accum.min_max(&range))
-            .unwrap()
+        [
+            region.center(),
+            Vec3::new(region.min.x, region.min.y, region.min.z),
+            Vec3::new(region.max.x, region.min.y, region.min.z),
+            Vec3::new(region.min.x, region.max.y, region.min.z),
+            Vec3::new(region.max.x, region.max.y, region.min.z),
+            Vec3::new(region.min.x, region.min.y, region.max.z),
+            Vec3::new(region.max.x, region.min.y, region.max.z),
+            Vec3::new(region.min.x, region.max.y, region.max.z),
+            Vec3::new(region.max.x, region.max.y, region.max.z),
+        ]
+        .into_iter()
+        .map(|point| DensityRange::converged(self.density_at_point(point, info)))
+        .reduce(|accum, density| accum.min_max(&density))
+        .unwrap_or_default()
     }
 
     /// Returns normalized "surface" normal at the given point.
@@ -100,6 +100,8 @@ pub trait DensityField: Send + Sync + Any {
     /// around queried point.
     ///
     /// The default implementation returns zero meaning no particular direction.
+    /// You should limit returning zero only to cases where there is really no
+    /// way to tell the density gradient at given point, like constant fields.
     #[allow(unused_variables)]
     fn normal_at_point(
         &self,

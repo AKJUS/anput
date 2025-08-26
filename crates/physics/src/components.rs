@@ -5,7 +5,7 @@ use anput::{
     world::{Relation, World},
 };
 use serde::{Deserialize, Serialize};
-use vek::{Quaternion, Vec3};
+use vek::{Mat4, Quaternion, Vec3};
 
 #[derive(Clone)]
 pub struct BodyAccessInfo {
@@ -27,9 +27,30 @@ impl BodyAccessInfo {
     ) -> impl Iterator<Item = Fetch::Value> + 'a {
         self.view
             .entity::<LOCKING, &Relation<BodyParticleRelation>>(self.entity)
+            .map(|relations| self.view.lookup::<LOCKING, Fetch>(relations.entities()))
+            .into_iter()
+            .flatten()
+    }
+
+    pub fn world_space_particles<
+        'a,
+        const LOCKING: bool,
+        Fetch: TypedLookupFetch<'a, LOCKING> + 'a,
+    >(
+        &'a self,
+    ) -> impl Iterator<Item = (Mat4<Scalar>, Fetch::Value)> + 'a {
+        self.view
+            .entity::<LOCKING, &Relation<BodyParticleRelation>>(self.entity)
             .map(|relations| {
                 self.view
-                    .lookup::<LOCKING, Fetch>(relations.iter().map(|(_, entity)| entity))
+                    .lookup::<LOCKING, (&Position, Option<&Rotation>, Fetch)>(relations.entities())
+                    .map(|(position, rotation, value)| {
+                        let matrix = rotation
+                            .map(|rotation| Mat4::from(rotation.current))
+                            .unwrap_or_default()
+                            * Mat4::translation_3d(position.current);
+                        (matrix, value)
+                    })
             })
             .into_iter()
             .flatten()
@@ -40,10 +61,7 @@ impl BodyAccessInfo {
     ) -> impl Iterator<Item = Fetch::Value> + 'a {
         self.view
             .entity::<LOCKING, &Relation<BodyDensityFieldRelation>>(self.entity)
-            .map(|relations| {
-                self.view
-                    .lookup::<LOCKING, Fetch>(relations.iter().map(|(_, entity)| entity))
-            })
+            .map(|relations| self.view.lookup::<LOCKING, Fetch>(relations.entities()))
             .into_iter()
             .flatten()
     }
@@ -238,7 +256,7 @@ impl Default for BodyMaterial {
     fn default() -> Self {
         Self {
             friction: 0.5,
-            restitution: 0.0,
+            restitution: 0.5,
         }
     }
 }

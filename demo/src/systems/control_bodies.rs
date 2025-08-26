@@ -1,5 +1,9 @@
-use crate::{components::Visible, game::Inputs};
+use crate::{
+    components::{Disposable, Visible},
+    resources::{Globals, Inputs, SpawnMode},
+};
 use anput::{
+    bundle::DynamicBundle,
     commands::CommandBuffer,
     systems::SystemContext,
     third_party::intuicio_data::managed::ManagedLazy,
@@ -11,7 +15,7 @@ use anput_physics::{
         BodyDensityFieldRelation, BodyParentRelation, BodyParticleRelation, ExternalForces,
         LinearVelocity, Mass, ParticleMaterial, PhysicsBody, PhysicsParticle, Position,
     },
-    density_fields::{DensityFieldBox, sphere::SphereDensityField},
+    density_fields::{DensityFieldBox, cube::CubeDensityField, sphere::SphereDensityField},
     third_party::vek::{Rgba, Vec2},
 };
 use send_wrapper::SendWrapper;
@@ -20,10 +24,11 @@ use spitfire_glow::graphics::Graphics;
 use std::error::Error;
 
 pub fn control_bodies(context: SystemContext) -> Result<(), Box<dyn Error>> {
-    let (mut commands, graphics, inputs, mut spawn_bodies) = context.fetch::<(
+    let (mut commands, graphics, inputs, globals, mut spawn_bodies) = context.fetch::<(
         Res<true, &mut CommandBuffer>,
         Res<true, &SendWrapper<ManagedLazy<Graphics<Vertex>>>>,
-        Res<true, &SendWrapper<Inputs>>,
+        Res<true, &Inputs>,
+        Res<true, &Globals>,
         Local<true, &mut SpawnBodies>,
     )>()?;
 
@@ -53,32 +58,68 @@ pub fn control_bodies(context: SystemContext) -> Result<(), Box<dyn Error>> {
         && let Some(drag_position) = spawn_bodies.drag_position.take()
     {
         let direction = world_coords - drag_position;
+        let spawn_mode = globals.spawn_mode;
 
         commands.schedule(move |world| {
-            let ball = world
-                .spawn((
-                    PhysicsBody,
-                    PhysicsParticle,
-                    DensityFieldBox::new(SphereDensityField::<true>::new_hard(1.0, 50.0)),
-                    CollisionProfile::default().with_block(CollisionMask::flag(0)),
-                    ContactDetection::default(),
-                    Mass::new(1.0),
-                    Position::new(world_coords),
-                    LinearVelocity::new(direction),
-                    ExternalForces::default(),
-                    ParticleMaterial::default(),
-                    Rgba::<f32>::red(),
-                    Visible,
-                ))
+            let mut bundle = DynamicBundle::default();
+            bundle.add_component(PhysicsBody).ok().unwrap();
+            bundle.add_component(PhysicsParticle).ok().unwrap();
+            bundle
+                .add_component(CollisionProfile::default().with_block(CollisionMask::flag(0)))
+                .ok()
+                .unwrap();
+            bundle
+                .add_component(ContactDetection::default())
+                .ok()
+                .unwrap();
+            bundle.add_component(Mass::new(1.0)).ok().unwrap();
+            bundle
+                .add_component(Position::new(drag_position))
+                .ok()
+                .unwrap();
+            bundle
+                .add_component(LinearVelocity::new(direction))
+                .ok()
+                .unwrap();
+            bundle
+                .add_component(ExternalForces::default())
+                .ok()
+                .unwrap();
+            bundle
+                .add_component(ParticleMaterial::default())
+                .ok()
+                .unwrap();
+            bundle.add_component(Rgba::<f32>::red()).ok().unwrap();
+            bundle.add_component(Visible).ok().unwrap();
+            bundle.add_component(Disposable).ok().unwrap();
+            match spawn_mode {
+                SpawnMode::Sphere => {
+                    bundle
+                        .add_component(DensityFieldBox::new(SphereDensityField::<true>::new_hard(
+                            1.0, 50.0,
+                        )))
+                        .ok()
+                        .unwrap();
+                }
+                SpawnMode::Cube => {
+                    bundle
+                        .add_component(DensityFieldBox::new(CubeDensityField::<true>::new_hard(
+                            1.0,
+                            50.0.into(),
+                        )))
+                        .ok()
+                        .unwrap();
+                }
+            }
+            let object = world.spawn(bundle).unwrap();
+            world
+                .relate::<true, _>(BodyParentRelation, object, object)
                 .unwrap();
             world
-                .relate::<true, _>(BodyParentRelation, ball, ball)
+                .relate::<true, _>(BodyDensityFieldRelation, object, object)
                 .unwrap();
             world
-                .relate::<true, _>(BodyDensityFieldRelation, ball, ball)
-                .unwrap();
-            world
-                .relate::<true, _>(BodyParticleRelation, ball, ball)
+                .relate::<true, _>(BodyParticleRelation, object, object)
                 .unwrap();
         });
     }

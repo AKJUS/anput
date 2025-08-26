@@ -182,6 +182,14 @@ pub trait UniverseCondition {
     fn evaluate(context: SystemContext) -> bool;
 }
 
+pub struct NegateUniverseCondition<T: UniverseCondition>(PhantomData<fn() -> T>);
+
+impl<T: UniverseCondition> UniverseCondition for NegateUniverseCondition<T> {
+    fn evaluate(context: SystemContext) -> bool {
+        !T::evaluate(context)
+    }
+}
+
 pub struct ResourceDidChanged<T: Component>(PhantomData<fn() -> T>);
 
 impl<T: Component> UniverseCondition for ResourceDidChanged<T> {

@@ -4,8 +4,8 @@ use crate::{
     entity::Entity,
     query::TypedLookupFetch,
     resources::Resources,
-    systems::{System, SystemContext, SystemObject, Systems},
-    universe::{Plugin, Universe},
+    systems::{System, SystemContext, SystemObject, SystemRunCondition, Systems},
+    universe::{Plugin, Universe, UniverseCondition},
     world::{Relation, World},
 };
 use anput_jobs::{JobLocation, JobPriority, Jobs, ScopedJobs};
@@ -243,6 +243,13 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
             if group_children.is_empty() {
                 return Ok(());
             }
+            if let Ok(condition) = universe
+                .systems
+                .component::<LOCKING, SystemRunCondition>(entity)
+                && !condition.evaluate(SystemContext::new(universe, entity))
+            {
+                return Ok(());
+            }
             let substeps = universe
                 .systems
                 .component::<LOCKING, SystemSubsteps>(entity)
@@ -435,6 +442,10 @@ impl<const LOCKING: bool> GraphSchedulerPlugin<LOCKING> {
         self.local(SystemInjectInto::new(name))
     }
 
+    pub fn condition<T: UniverseCondition>(self) -> Self {
+        self.local(SystemRunCondition::new::<T>())
+    }
+
     pub fn local<T: Component>(mut self, component: T) -> Self {
         self.locals.add_component(component).ok().unwrap();
         self
@@ -600,6 +611,10 @@ impl<const LOCKING: bool> GraphSchedulerPluginSystem<LOCKING> {
 
     pub fn inject_into(self, name: impl Into<Cow<'static, str>>) -> Self {
         self.local(SystemInjectInto::new(name))
+    }
+
+    pub fn condition<T: UniverseCondition>(self) -> Self {
+        self.local(SystemRunCondition::new::<T>())
     }
 
     pub fn local<T: Component>(mut self, component: T) -> Self {

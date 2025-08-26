@@ -1,5 +1,6 @@
 pub mod components;
 pub mod game;
+pub mod resources;
 pub mod systems;
 pub mod utils;
 
@@ -9,7 +10,7 @@ use spitfire_glow::app::App;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "tracing")]
     let _guard = {
         use tracing_chrome::ChromeLayerBuilder;
         use tracing_subscriber::prelude::*;

@@ -1,9 +1,14 @@
-use crate::{components::Visible, game::PIXEL_SIZE, utils::screen_aabb};
+use crate::{
+    components::Visible,
+    game::PIXEL_SIZE,
+    resources::{Globals, RenderMode},
+    utils::screen_aabb,
+};
 use anput::{
     query::{Include, Query},
     systems::SystemContext,
     third_party::intuicio_data::managed::ManagedLazy,
-    universe::Res,
+    universe::{Res, UniverseCondition},
     world::{Relation, World},
 };
 use anput_physics::{
@@ -19,6 +24,19 @@ use spitfire_draw::{
 };
 use spitfire_glow::graphics::Graphics;
 use std::error::Error;
+
+pub struct ShouldRenderDensityFields;
+
+impl UniverseCondition for ShouldRenderDensityFields {
+    fn evaluate(context: SystemContext) -> bool {
+        context
+            .universe
+            .resources
+            .get::<true, Globals>()
+            .map(|globals| globals.render_mode == RenderMode::DensityFields)
+            .unwrap_or_default()
+    }
+}
 
 pub fn render_density_fields(context: SystemContext) -> Result<(), Box<dyn Error>> {
     let (world, mut pixels, graphics, query) = context.fetch::<(

@@ -1176,7 +1176,7 @@ pub fn default_repulsive_collision_correction(correction: RepulsiveCollisionCorr
         let area = cell.area();
         penetration += Vec3::from(cell.region.size()).dot(contact_normal).abs() * area;
         total_area += area;
-        response_normal += cell.normal_response(body_index);
+        response_normal += cell.normal[body_index].reflected(contact_normal);
         center_of_mass += cell.region.center();
     }
     penetration /= total_area;
