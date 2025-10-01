@@ -75,7 +75,7 @@ impl Default for FooFakeWorkload {
 
 impl FooFakeWorkload {
     pub fn update(&mut self) {
-        if self.value % 3 == 0 {
+        if self.value.is_multiple_of(3) {
             self.value = self.value.wrapping_mul(7).wrapping_add(13);
         } else {
             self.value = self.value.wrapping_add(5);

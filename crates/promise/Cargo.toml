@@ -1,18 +1,14 @@
 [package]
-name = "anput-spatial"
+name = "anput-promise"
 version = "0.20.3"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
-description = "Spatial queries plugin for Anput ECS"
+description = "Async promise library"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/PsichiX/anput"
 repository = "https://github.com/PsichiX/anput"
-documentation = "https://docs.rs/anput-spatial"
+documentation = "https://docs.rs/anput-promise"
 readme = "../../README.md"
 
-[dependencies]
-anput = { version = "0.20", path = "../_" }
-rstar = "0.12"
-
 [dev-dependencies]
-vek = "0.17"
+pollster = { version = "0.4", features = ["macro"] }
