@@ -20,7 +20,7 @@ use typid::ID;
 #[derive(Default)]
 pub struct OnExit {
     job: Option<JobObject>,
-    queue: Arc<JobQueue>,
+    queue: JobQueue,
 }
 
 impl Drop for OnExit {
@@ -507,6 +507,9 @@ pub async fn queue_on<T: Send + 'static>(
     result
 }
 
+/// IMPORTANT: You must assign the result of this function to a named variable,
+/// otherwise the future will be executed immediately!
+#[must_use]
 pub async fn on_exit(future: impl Future<Output = ()> + Send + Sync + 'static) -> OnExit {
     let mut job = Some(Job(Box::pin(future)));
     poll_fn(move |cx| {

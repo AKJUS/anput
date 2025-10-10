@@ -1,6 +1,6 @@
 [package]
 name = "anput-jobs"
-version = "0.20.3"
+version = "0.20.4"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Jobs plugin for Anput ECS"
