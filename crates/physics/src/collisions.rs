@@ -1213,7 +1213,7 @@ mod tests {
         components::{BodyDensityFieldRelation, ExternalForces, LinearVelocity, PhysicsBody},
         density_fields::{aabb::AabbDensityField, sphere::SphereDensityField},
     };
-    use anput::{scheduler::GraphScheduler, third_party::anput_jobs::Jobs, universe::Universe};
+    use anput::{scheduler::GraphScheduler, third_party::moirai::Jobs, universe::Universe};
     use vek::Vec3;
 
     #[test]

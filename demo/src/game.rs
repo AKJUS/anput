@@ -11,7 +11,7 @@ use crate::{
 };
 use anput::{
     scheduler::{GraphScheduler, GraphSchedulerPlugin, SystemName, SystemSubsteps},
-    third_party::{anput_jobs::Jobs, intuicio_data::managed::ManagedLazy},
+    third_party::{intuicio_data::managed::ManagedLazy, moirai::Jobs},
     universe::Universe,
 };
 use anput_physics::{

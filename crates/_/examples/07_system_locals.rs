@@ -5,7 +5,7 @@ use anput::{
     universe::{Local, Universe},
     world::World,
 };
-use anput_jobs::Jobs;
+use moirai::Jobs;
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]

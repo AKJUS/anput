@@ -3,7 +3,7 @@ use anput::{
     systems::SystemContext,
     universe::{Res, Universe},
 };
-use anput_jobs::Jobs;
+use moirai::Jobs;
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]
