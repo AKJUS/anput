@@ -404,7 +404,7 @@ enum RelationConnections<T: Component> {
 
 impl<T: Component> Default for RelationConnections<T> {
     fn default() -> Self {
-        Self::Zero(Default::default())
+        Self::Zero([])
     }
 }
 
