@@ -24,4 +24,11 @@ pub mod third_party {
     pub use intuicio_derive;
     pub use intuicio_framework_serde;
     pub use moirai;
+
+    pub mod time {
+        #[cfg(target_arch = "wasm32")]
+        pub use instant::{Duration, Instant};
+        #[cfg(not(target_arch = "wasm32"))]
+        pub use std::time::{Duration, Instant};
+    }
 }
