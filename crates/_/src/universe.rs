@@ -405,3 +405,88 @@ impl Universe {
 pub trait Plugin: Send + Sync {
     fn install(self, simulation: &mut World, systems: &mut Systems, resources: &mut Resources);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scheduler::{GraphScheduler, GraphSchedulerPlugin, SystemParallelize};
+    use moirai::Jobs;
+
+    #[test]
+    fn test_universe_parallelized_scheduler() {
+        struct A(f32);
+        struct B(f32);
+        struct C(f32);
+        struct D(f32);
+        struct E(f32);
+
+        fn ab(context: SystemContext) -> Result<(), Box<dyn Error>> {
+            let (world, query) = context.fetch::<(&World, Query<true, (&mut A, &mut B)>)>()?;
+
+            for (a, b) in query.query(world) {
+                std::mem::swap(&mut a.0, &mut b.0);
+            }
+
+            Ok(())
+        }
+
+        fn cd(context: SystemContext) -> Result<(), Box<dyn Error>> {
+            let (world, query) = context.fetch::<(&World, Query<true, (&mut C, &mut D)>)>()?;
+
+            for (c, d) in query.query(world) {
+                std::mem::swap(&mut c.0, &mut d.0);
+            }
+
+            Ok(())
+        }
+
+        fn ce(context: SystemContext) -> Result<(), Box<dyn Error>> {
+            let (world, query) = context.fetch::<(&World, Query<true, (&mut C, &mut E)>)>()?;
+
+            for (c, e) in query.query(world) {
+                std::mem::swap(&mut c.0, &mut e.0);
+            }
+
+            Ok(())
+        }
+
+        let mut universe = Universe::default().with_plugin(
+            GraphSchedulerPlugin::<true>::default()
+                .plugin_setup(|plugin| {
+                    plugin
+                        .name("root")
+                        .system_setup(ab, |system| {
+                            system.name("ab").local(SystemParallelize::AnyWorker)
+                        })
+                        .system_setup(cd, |system| {
+                            system.name("cd").local(SystemParallelize::AnyWorker)
+                        })
+                })
+                .system_setup(ce, |system| {
+                    system.name("ce").local(SystemParallelize::AnyWorker)
+                }),
+        );
+
+        for _ in 0..10 {
+            universe.simulation.spawn((A(0.0), B(0.0))).unwrap();
+        }
+        for _ in 0..10 {
+            universe.simulation.spawn((A(0.0), B(0.0), C(0.0))).unwrap();
+        }
+        for _ in 0..10 {
+            universe
+                .simulation
+                .spawn((A(0.0), B(0.0), C(0.0), D(0.0)))
+                .unwrap();
+        }
+        for _ in 0..10 {
+            universe
+                .simulation
+                .spawn((A(0.0), B(0.0), C(0.0), E(0.0)))
+                .unwrap();
+        }
+
+        let jobs = Jobs::default();
+        GraphScheduler::<true>.run(&jobs, &mut universe).unwrap();
+    }
+}

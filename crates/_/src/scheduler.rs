@@ -5,15 +5,12 @@ use crate::{
     query::TypedLookupFetch,
     resources::Resources,
     systems::{System, SystemContext, SystemObject, SystemRunCondition, Systems},
+    third_party::time::{Duration, Instant},
     universe::{Plugin, Universe, UniverseCondition},
     world::{Relation, World},
 };
-#[cfg(target_arch = "wasm32")]
-use instant::{Duration, Instant};
 use intuicio_data::managed::DynamicManaged;
 use moirai::{JobLocation, JobPriority, Jobs, ScopedJobs};
-#[cfg(not(target_arch = "wasm32"))]
-use std::time::{Duration, Instant};
 use std::{
     borrow::Cow,
     collections::HashSet,
@@ -276,17 +273,11 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
             .systems
             .component::<LOCKING, SystemParallelize>(entity)
         {
-            match &*parallelize {
-                SystemParallelize::AnyWorker => {
-                    scoped_jobs
-                        .queue_on(JobLocation::NonLocal, JobPriority::Normal, move |_| job())?
-                }
-                SystemParallelize::NamedWorker(cow) => scoped_jobs.queue_on(
-                    JobLocation::named_worker(cow.as_ref()),
-                    JobPriority::Normal,
-                    move |_| job(),
-                )?,
-            }
+            let location = match &*parallelize {
+                SystemParallelize::AnyWorker => JobLocation::NonLocal,
+                SystemParallelize::NamedWorker(cow) => JobLocation::named_worker(cow.as_ref()),
+            };
+            scoped_jobs.queue_on(location, JobPriority::Normal, move |_| job())?;
         } else {
             job()?;
         }
