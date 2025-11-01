@@ -1100,8 +1100,9 @@ impl Column {
     }
 
     unsafe fn reallocate(&mut self, size: usize, capacity: usize) {
-        let (memory, layout) = unsafe { Self::allocate_memory(self.info.layout, capacity) };
-        unsafe { self.memory.copy_to(memory, self.info.layout.size() * size) };
+        let info_layout = self.info.layout.pad_to_align();
+        let (memory, layout) = unsafe { Self::allocate_memory(info_layout, capacity) };
+        unsafe { self.memory.copy_to(memory, info_layout.size() * size) };
         unsafe { non_zero_dealloc(self.memory, self.layout) };
         self.memory = memory;
         self.layout = layout;
@@ -1412,6 +1413,18 @@ impl Archetype {
         self.entity_dense_map.clear();
     }
 
+    fn ensure_columns_capacity(&mut self, new_size: usize) {
+        if new_size <= self.capacity {
+            return;
+        }
+        while new_size > self.capacity {
+            self.capacity *= 2;
+        }
+        for column in self.columns.as_mut() {
+            unsafe { column.reallocate(self.size, self.capacity) };
+        }
+    }
+
     pub fn insert(&mut self, entity: Entity, bundle: impl Bundle) -> Result<(), ArchetypeError> {
         self.validate_sdir()?;
         for info in bundle.columns() {
@@ -1426,12 +1439,7 @@ impl Archetype {
                 });
             }
         }
-        if self.size == self.capacity {
-            self.capacity *= 2;
-            for column in self.columns.as_mut() {
-                unsafe { column.reallocate(self.size, self.capacity) };
-            }
-        }
+        self.ensure_columns_capacity(self.size + 1);
         let index = match self.entity_dense_map.insert(entity) {
             Ok(index) => index,
             Err(index) => return Err(ArchetypeError::IndexAlreadyOccupied { index }),
@@ -1454,12 +1462,7 @@ impl Archetype {
         entity: Entity,
     ) -> Result<ArchetypeEntityRowAccess<'_>, ArchetypeError> {
         self.validate_sdir()?;
-        if self.size == self.capacity {
-            self.capacity *= 2;
-            for column in self.columns.as_mut() {
-                unsafe { column.reallocate(self.size, self.capacity) };
-            }
-        }
+        self.ensure_columns_capacity(self.size + 1);
         let index = match self.entity_dense_map.insert(entity) {
             Ok(index) => index,
             Err(index) => return Err(ArchetypeError::IndexAlreadyOccupied { index }),
@@ -1533,6 +1536,7 @@ impl Archetype {
             return Err(ArchetypeError::EntityAlreadyOccupied { entity });
         }
         self.validate_sdir()?;
+        other.ensure_columns_capacity(other.size + 1);
         let index_to = other.entity_dense_map.insert(entity).unwrap();
         let index_from = self.entity_dense_map.remove(entity).unwrap();
         let columns = other

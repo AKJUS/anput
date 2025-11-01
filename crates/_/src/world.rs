@@ -802,7 +802,7 @@ impl Default for World {
 impl World {
     #[inline]
     pub fn with_new_archetype_capacity(mut self, value: usize) -> Self {
-        self.new_archetype_capacity = value;
+        self.new_archetype_capacity = value.max(1);
         self
     }
 
@@ -2169,5 +2169,27 @@ mod tests {
         }
 
         let _ = handle.join();
+    }
+
+    #[test]
+    fn test_add_remove_components() {
+        struct A(#[allow(dead_code)] f32);
+        struct B(#[allow(dead_code)] f32);
+
+        const N: usize = if cfg!(miri) { 10 } else { 10000 };
+
+        let mut world = World::default().with_new_archetype_capacity(1);
+
+        let entities = (0..N)
+            .map(|_| world.spawn((A(0.0),)).unwrap())
+            .collect::<Vec<_>>();
+
+        for entity in &entities {
+            world.insert(*entity, (B(0.0),)).unwrap();
+        }
+
+        for entity in &entities {
+            world.remove::<(B,)>(*entity).unwrap();
+        }
     }
 }
