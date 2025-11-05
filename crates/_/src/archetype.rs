@@ -1100,7 +1100,7 @@ impl Column {
     }
 
     unsafe fn reallocate(&mut self, size: usize, capacity: usize) {
-        let info_layout = self.info.layout.pad_to_align();
+        let info_layout = self.info.layout;
         let (memory, layout) = unsafe { Self::allocate_memory(info_layout, capacity) };
         unsafe { self.memory.copy_to(memory, info_layout.size() * size) };
         unsafe { non_zero_dealloc(self.memory, self.layout) };
@@ -1108,8 +1108,7 @@ impl Column {
         self.layout = layout;
     }
 
-    unsafe fn allocate_memory(mut item_layout: Layout, capacity: usize) -> (*mut u8, Layout) {
-        item_layout = item_layout.pad_to_align();
+    unsafe fn allocate_memory(item_layout: Layout, capacity: usize) -> (*mut u8, Layout) {
         let layout = unsafe {
             Layout::from_size_align_unchecked(item_layout.size() * capacity, item_layout.align())
         };

@@ -1,6 +1,6 @@
 [package]
 name = "anput"
-version = "0.21.3"
+version = "0.21.4"
 edition = "2024"
 authors = ["Patryk 'PsichiX' Budzynski <psichix@gmail.com>"]
 description = "Scriptable Entity-Component-System (powered by Intuicio)"
@@ -14,6 +14,7 @@ readme = "../../README.md"
 default = ["tracing"]
 tracing = ["dep:tracing"]
 deadlock-trace = ["moirai/deadlock-trace"]
+trace-changes = []
 
 [dependencies]
 moirai = "0.1"

@@ -6,7 +6,7 @@ publish = false
 
 [features]
 default = ["tracing"]
-tracing = []
+tracing = ["anput/tracing"]
 
 [dependencies]
 anput = { version = "0.21", path = "../crates/_" }

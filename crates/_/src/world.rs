@@ -992,6 +992,18 @@ impl World {
         };
         match archetype.insert(entity, bundle) {
             Ok(_) => {
+                #[cfg(feature = "tracing")]
+                #[cfg(feature = "trace-changes")]
+                tracing::event!(
+                    name: "Entity spawned",
+                    target: "anput::world",
+                    tracing::Level::INFO,
+                    entity = entity.to_string(),
+                    archetype_id = id,
+                    bundle_types = format!("{:?}", bundle_types),
+                    thread_id = format!("{:?}", std::thread::current().id()),
+                    backtrace = format!("{}", std::backtrace::Backtrace::capture()),
+                );
                 self.added
                     .table
                     .entry(entity)
@@ -1057,6 +1069,18 @@ impl World {
         };
         match archetype.add(entity) {
             Ok(result) => {
+                #[cfg(feature = "tracing")]
+                #[cfg(feature = "trace-changes")]
+                tracing::event!(
+                    name: "Entity spawned uninitialized",
+                    target: "anput::world",
+                    tracing::Level::INFO,
+                    entity = entity.to_string(),
+                    archetype_id = id,
+                    bundle_types = format!("{:?}", bundle_types),
+                    thread_id = format!("{:?}", std::thread::current().id()),
+                    backtrace = format!("{}", std::backtrace::Backtrace::capture()),
+                );
                 self.added
                     .table
                     .entry(entity)
@@ -1076,6 +1100,18 @@ impl World {
         let archetype = self.archetypes.get_mut(id).unwrap();
         match archetype.remove(entity) {
             Ok(_) => {
+                #[cfg(feature = "tracing")]
+                #[cfg(feature = "trace-changes")]
+                tracing::event!(
+                    name: "Entity despawned",
+                    target: "anput::world",
+                    tracing::Level::INFO,
+                    entity = entity.to_string(),
+                    archetype_id = id,
+                    bundle_types = format!("{:?}", archetype.columns().map(|column| column.type_hash()).collect::<Vec<_>>()),
+                    thread_id = format!("{:?}", std::thread::current().id()),
+                    backtrace = format!("{}", std::backtrace::Backtrace::capture()),
+                );
                 self.removed
                     .table
                     .entry(entity)
@@ -1096,6 +1132,18 @@ impl World {
         let archetype = self.archetypes.get_mut(id).unwrap();
         match unsafe { archetype.remove_uninitialized(entity) } {
             Ok(_) => {
+                #[cfg(feature = "tracing")]
+                #[cfg(feature = "trace-changes")]
+                tracing::event!(
+                    name: "Entity despawned uninitialized",
+                    target: "anput::world",
+                    tracing::Level::INFO,
+                    entity = entity.to_string(),
+                    archetype_id = id,
+                    bundle_types = format!("{:?}", archetype.columns().map(|column| column.type_hash()).collect::<Vec<_>>()),
+                    thread_id = format!("{:?}", std::thread::current().id()),
+                    backtrace = format!("{}", std::backtrace::Backtrace::capture()),
+                );
                 self.removed
                     .table
                     .entry(entity)
@@ -1112,6 +1160,15 @@ impl World {
 
     #[inline]
     pub fn despawn_all(&mut self) {
+        #[cfg(feature = "tracing")]
+        #[cfg(feature = "trace-changes")]
+        tracing::event!(
+            name: "Despawned all entities",
+            target: "anput::world",
+            tracing::Level::INFO,
+            thread_id = format!("{:?}", std::thread::current().id()),
+            backtrace = format!("{}", std::backtrace::Backtrace::capture()),
+        );
         self.archetypes.clear();
         self.entities.clear();
     }
@@ -1140,7 +1197,7 @@ impl World {
                 new_columns.push(column);
             }
         }
-        if let Some(new_id) = self.archetypes.find_by_columns_exact(&new_columns) {
+        let _new_id = if let Some(new_id) = self.archetypes.find_by_columns_exact(&new_columns) {
             if new_id == old_id {
                 return Ok(());
             }
@@ -1148,6 +1205,7 @@ impl World {
             let access = old_archetype.transfer(new_archetype, entity)?;
             bundle.initialize_into(&access);
             self.entities.set(entity, new_id)?;
+            new_id
         } else {
             let mut archetype = Archetype::new(new_columns, self.new_archetype_capacity)?;
             let access = self
@@ -1160,7 +1218,21 @@ impl World {
             let (new_id, archetype_slot) = self.archetypes.acquire()?;
             *archetype_slot = Some(archetype);
             self.entities.set(entity, new_id)?;
-        }
+            new_id
+        };
+        #[cfg(feature = "tracing")]
+        #[cfg(feature = "trace-changes")]
+        tracing::event!(
+            name: "Inserted components to entity",
+            target: "anput::world",
+            tracing::Level::INFO,
+            entity = entity.to_string(),
+            old_archetype_id = old_id,
+            new_archetype_id = _new_id,
+            bundle_types = format!("{:?}", bundle_types),
+            thread_id = format!("{:?}", std::thread::current().id()),
+            backtrace = format!("{}", std::backtrace::Backtrace::capture()),
+        );
         self.added
             .table
             .entry(entity)
@@ -1201,13 +1273,14 @@ impl World {
                 new_columns.swap_remove(index);
             }
         }
-        if let Some(new_id) = self.archetypes.find_by_columns_exact(&new_columns) {
+        let _new_id = if let Some(new_id) = self.archetypes.find_by_columns_exact(&new_columns) {
             if new_id == old_id {
                 return Ok(());
             }
             let [old_archetype, new_archetype] = self.archetypes.get_mut_two([old_id, new_id])?;
             old_archetype.transfer(new_archetype, entity)?;
             self.entities.set(entity, new_id)?;
+            new_id
         } else {
             let mut archetype = Archetype::new(new_columns, self.new_archetype_capacity)?;
             self.archetypes
@@ -1217,10 +1290,24 @@ impl World {
             let (new_id, archetype_slot) = self.archetypes.acquire()?;
             *archetype_slot = Some(archetype);
             self.entities.set(entity, new_id)?;
-        }
+            new_id
+        };
         if despawn {
             let _ = self.entities.release(entity);
         }
+        #[cfg(feature = "tracing")]
+        #[cfg(feature = "trace-changes")]
+        tracing::event!(
+            name: "Removed components from entity",
+            target: "anput::world",
+            tracing::Level::INFO,
+            entity = entity.to_string(),
+            old_archetype_id = old_id,
+            new_archetype_id = _new_id,
+            bundle_types = format!("{:?}", bundle_types),
+            thread_id = format!("{:?}", std::thread::current().id()),
+            backtrace = format!("{}", std::backtrace::Backtrace::capture()),
+        );
         self.removed
             .table
             .entry(entity)
