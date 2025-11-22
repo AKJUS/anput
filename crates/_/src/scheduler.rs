@@ -10,7 +10,7 @@ use crate::{
     world::{Relation, World},
 };
 use intuicio_data::managed::DynamicManaged;
-use moirai::{JobLocation, JobPriority, Jobs, ScopedJobs};
+use moirai::jobs::{JobLocation, Jobs, ScopedJobs};
 use std::{
     borrow::Cow,
     collections::HashSet,
@@ -277,7 +277,7 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
                 SystemParallelize::AnyWorker => JobLocation::NonLocal,
                 SystemParallelize::NamedWorker(cow) => JobLocation::named_worker(cow.as_ref()),
             };
-            scoped_jobs.queue_on(location, JobPriority::Normal, move |_| job())?;
+            scoped_jobs.queue(location, move |_| job())?;
         } else {
             job()?;
         }

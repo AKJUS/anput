@@ -410,7 +410,7 @@ pub trait Plugin: Send + Sync {
 mod tests {
     use super::*;
     use crate::scheduler::{GraphScheduler, GraphSchedulerPlugin, SystemParallelize};
-    use moirai::Jobs;
+    use moirai::jobs::Jobs;
 
     #[test]
     fn test_universe_parallelized_scheduler() {

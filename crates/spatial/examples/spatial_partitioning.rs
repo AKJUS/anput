@@ -3,7 +3,7 @@ use anput::{
     query::Include,
     scheduler::{GraphScheduler, GraphSchedulerPlugin},
     systems::SystemContext,
-    third_party::moirai::Jobs,
+    third_party::moirai::jobs::Jobs,
     universe::{Res, Universe},
     world::World,
 };

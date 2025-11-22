@@ -3,7 +3,10 @@ use anput::{
     view::WorldView,
     world::{Relation, World},
 };
-use moirai::{JobLocation, JobPriority, Jobs, coroutine::block_on};
+use moirai::{
+    coroutine::block_on,
+    jobs::{JobLocation, Jobs},
+};
 use rand::{Rng, rng};
 use std::{collections::HashSet, error::Error};
 
@@ -86,39 +89,35 @@ fn main() -> Result<(), Box<dyn Error>> {
         .entity_by_index(rng.random_range(0..world.len()))
         .unwrap();
     let view = WorldView::new::<(Relation<Next>,)>(&world);
-    let job = jobs.spawn_on(
-        JobLocation::UnnamedWorker,
-        JobPriority::Normal,
-        async move {
-            fn search(
-                source: Entity,
-                target: Entity,
-                view: &WorldView,
-                visited: &mut HashSet<Entity>,
-            ) -> bool {
-                if source == target {
+    let job = jobs.spawn(JobLocation::UnnamedWorker, async move {
+        fn search(
+            source: Entity,
+            target: Entity,
+            view: &WorldView,
+            visited: &mut HashSet<Entity>,
+        ) -> bool {
+            if source == target {
+                return true;
+            }
+            if visited.contains(&source) {
+                return false;
+            }
+            visited.insert(source);
+            for to in view
+                .entity::<true, &Relation<Next>>(source)
+                .unwrap()
+                .entities()
+            {
+                if search(to, target, view, visited) {
                     return true;
                 }
-                if visited.contains(&source) {
-                    return false;
-                }
-                visited.insert(source);
-                for to in view
-                    .entity::<true, &Relation<Next>>(source)
-                    .unwrap()
-                    .entities()
-                {
-                    if search(to, target, view, visited) {
-                        return true;
-                    }
-                }
-                false
             }
+            false
+        }
 
-            let mut visited = HashSet::with_capacity(view.len());
-            search(from, to, &view, &mut visited)
-        },
-    )?;
+        let mut visited = HashSet::with_capacity(view.len());
+        search(from, to, &view, &mut visited)
+    })?;
     let result = block_on(job).unwrap_or_default();
 
     println!("Are entities {from} and {to} connected: {result}");

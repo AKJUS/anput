@@ -7,7 +7,7 @@ use anput::{
     universe::{Res, Universe},
     world::{Relation, World},
 };
-use moirai::Jobs;
+use moirai::jobs::Jobs;
 use std::error::Error;
 
 #[derive(Debug, Default, Clone, Copy)]

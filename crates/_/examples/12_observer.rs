@@ -5,7 +5,7 @@ use anput::{
     systems::SystemContext,
     universe::{Res, Universe},
 };
-use moirai::Jobs;
+use moirai::jobs::Jobs;
 use rand::{Rng, rng};
 use std::error::Error;
 

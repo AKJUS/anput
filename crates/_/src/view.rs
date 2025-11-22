@@ -292,7 +292,7 @@ impl Iterator for WorldViewEntityRangeIter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moirai::Jobs;
+    use moirai::jobs::Jobs;
     use std::{
         thread::{sleep, spawn},
         time::Duration,

@@ -8,7 +8,7 @@ use anput::{
     universe::{Res, Universe},
     world::World,
 };
-use moirai::Jobs;
+use moirai::jobs::Jobs;
 use rand::{Rng, rng};
 use std::{
     error::Error,
