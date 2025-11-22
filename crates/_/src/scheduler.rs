@@ -277,7 +277,7 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
                 SystemParallelize::AnyWorker => JobLocation::NonLocal,
                 SystemParallelize::NamedWorker(cow) => JobLocation::named_worker(cow.as_ref()),
             };
-            scoped_jobs.queue(location, move |_| job())?;
+            scoped_jobs.spawn_closure(location, move |_| job())?;
         } else {
             job()?;
         }

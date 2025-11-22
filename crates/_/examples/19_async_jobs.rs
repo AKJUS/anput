@@ -3,10 +3,7 @@ use anput::{
     view::WorldView,
     world::{Relation, World},
 };
-use moirai::{
-    coroutine::block_on,
-    jobs::{JobLocation, Jobs},
-};
+use moirai::jobs::{JobLocation, Jobs};
 use rand::{Rng, rng};
 use std::{collections::HashSet, error::Error};
 
@@ -72,7 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         None
     })?;
-    let result = block_on(job).unwrap_or_default();
+    let result = job.wait().unwrap_or_default();
 
     // Present job results.
     if let Some(found) = result.into_iter().flatten().next() {
@@ -118,7 +115,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut visited = HashSet::with_capacity(view.len());
         search(from, to, &view, &mut visited)
     })?;
-    let result = block_on(job).unwrap_or_default();
+    let result = job.wait().unwrap_or_default();
 
     println!("Are entities {from} and {to} connected: {result}");
 
