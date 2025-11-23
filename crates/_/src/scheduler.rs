@@ -316,11 +316,14 @@ impl<const LOCKING: bool> GraphScheduler<LOCKING> {
         });
 
         for _ in substeps.iter() {
-            let mut scoped_jobs = ScopedJobs::new(jobs);
-            for (entity, _, _) in ordered.iter().copied() {
-                self.run_node(jobs, universe, entity, &mut scoped_jobs)?;
-            }
-            for result in scoped_jobs.execute() {
+            let (output, result) = jobs.scope::<_, Result<(), Box<dyn Error>>>(|scope| {
+                for (entity, _, _) in ordered.iter().copied() {
+                    self.run_node(jobs, universe, entity, scope)?;
+                }
+                Ok(())
+            });
+            result?;
+            for result in output {
                 result?;
             }
         }
