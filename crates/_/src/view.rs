@@ -365,7 +365,6 @@ mod tests {
                     .copied()
                     .sum::<usize>()
             })
-            .unwrap()
             .wait()
             .unwrap()
             .into_iter()

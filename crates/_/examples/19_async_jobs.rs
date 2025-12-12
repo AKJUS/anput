@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Some(found);
         }
         None
-    })?;
+    });
     let result = job.wait().unwrap_or_default();
 
     // Present job results.
@@ -114,7 +114,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let mut visited = HashSet::with_capacity(view.len());
         search(from, to, &view, &mut visited)
-    })?;
+    });
     let result = job.wait().unwrap_or_default();
 
     println!("Are entities {from} and {to} connected: {result}");

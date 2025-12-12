@@ -66,7 +66,7 @@ impl Default for Game {
     fn default() -> Self {
         Self {
             universe: Default::default(),
-            jobs: Jobs::new(0),
+            jobs: Jobs::new(0, Duration::from_millis(1)),
             scheduler: Default::default(),
             fixed_step_timer: Instant::now(),
             variable_step_timer: Instant::now(),
